@@ -1,0 +1,3342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Architecture 3D Visualizer - Advanced</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #262321; color: #fff; overflow: hidden; }
+        #container { width: 100vw; height: 100vh; position: relative; }
+        #canvas { width: 100%; height: 100%; }
+        
+        .panel { position: absolute; background: rgba(50, 49, 46, 0.95); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; backdrop-filter: blur(10px); font-size: 0.75em; z-index: 10; }
+        #controls { top: 10px; left: 10px; width: 220px; max-height: 96vh; overflow-y: auto; }
+        #info-panel { top: 10px; right: 10px; width: 260px; max-height: 45vh; overflow-y: auto; display: none; }
+        #graph-panel { bottom: 10px; right: 10px; width: 240px; max-height: 30vh; overflow-y: auto; }
+        #stats-panel { bottom: 10px; left: 240px; width: 160px; }
+        #timeline-panel { top: 10px; left: 240px; width: 260px; max-height: 96vh; overflow-y: auto; display: none; }
+        #playback-panel { bottom: 10px; left: 50%; transform: translateX(-50%); width: 380px; display: none; z-index: 20; }
+        
+        h2 { color: #888; margin-bottom: 6px; font-size: 0.95em; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 4px; }
+        h3 { color: #888; margin: 6px 0 4px; font-size: 0.85em; }
+        .control-group { margin-bottom: 6px; }
+        .control-group label { display: block; margin-bottom: 2px; color: #a0a0a0; font-size: 0.75em; }
+        
+        select, input, button { width: 100%; padding: 5px 8px; background: #32312E; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: #fff; font-size: 0.8em; margin-bottom: 4px; }
+        button { cursor: pointer; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); font-weight: bold; }
+        button:hover { opacity: 0.9; }
+        .btn-secondary { background: #32312E; border: 1px solid rgba(255,255,255,0.08); }
+        .btn-danger { background: rgba(255,255,255,0.08); }
+        .btn-success { background: rgba(255,255,255,0.08); }
+        .btn-warning { background: rgba(255,255,255,0.08); }
+        .btn-small { padding: 4px 8px; font-size: 0.75em; width: auto; display: inline-block; margin: 2px; }
+        
+        .stat { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #333; font-size: 0.85em; }
+        .stat-value { color: #888; font-weight: bold; }
+        .stat-value.danger { color: rgba(255,255,255,0.4); }
+        .stat-value.success { color: rgba(255,255,255,0.35); }
+        .stat-value.warning { color: rgba(255,255,255,0.35); }
+        
+        .legend-item { display: flex; align-items: center; margin: 3px 0; font-size: 0.8em; }
+        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        
+        .toggle-row { display: flex; gap: 5px; margin-bottom: 8px; }
+        .toggle-btn { flex: 1; padding: 5px; font-size: 0.75em; }
+        .toggle-btn.active { background: rgba(255,255,255,0.12); }
+        
+        .heat-bar { height: 8px; border-radius: 4px; margin: 5px 0; background: linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.35), rgba(255,255,255,0.5)); }
+        .heat-indicator { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; position: relative; }
+        
+        .timeline-item { padding: 8px; margin: 5px 0; background: #262321; border-radius: 4px; border-left: 3px solid rgba(255,255,255,0.12); }
+        .timeline-item.current { border-left-color: rgba(255,255,255,0.35); }
+        .timeline-item .label { font-weight: bold; color: #888; }
+        .timeline-item .delta { font-size: 0.8em; color: #a0a0a0; }
+        .timeline-item .delta.positive { color: rgba(255,255,255,0.35); }
+        .timeline-item .delta.negative { color: rgba(255,255,255,0.4); }
+        
+        .change-item { padding: 5px; margin: 3px 0; background: #262321; border-radius: 4px; font-size: 0.8em; }
+        .change-item.added { border-left: 3px solid rgba(255,255,255,0.35); }
+        .change-item.removed { border-left: 3px solid rgba(255,255,255,0.4); }
+        .change-item.modified { border-left: 3px solid rgba(255,255,255,0.35); }
+        
+        .explanation-box { background: #262321; padding: 8px; border-radius: 4px; margin: 5px 0; font-size: 0.8em; line-height: 1.4; }
+        .explanation-box .title { color: #888; font-weight: bold; margin-bottom: 5px; }
+        
+        .tabs { display: flex; gap: 2px; margin-bottom: 10px; }
+        .tab { flex: 1; padding: 6px; text-align: center; background: #32312E; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8em; }
+        .tab.active { background: rgba(255,255,255,0.08); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        #loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(50, 49, 46, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        .spinner { width: 50px; height: 50px; border: 4px solid #333; border-top-color: #888; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading-text { margin-top: 15px; color: #888; }
+        
+        .project-input { display: flex; gap: 5px; margin-bottom: 5px; }
+        .project-input input { flex: 1; }
+        .project-input button { width: 30px; padding: 5px; }
+        
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-left: 5px; }
+        .badge.critical { background: rgba(255,255,255,0.4); }
+        .badge.high { background: rgba(255,255,255,0.35); }
+        .badge.medium { background: #555; }
+        .badge.low { background: rgba(255,255,255,0.35); }
+        
+        /* Draggable panels */
+        .panel { cursor: default; user-select: none; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: move; margin: -10px -10px 8px -10px; padding: 8px 10px; background: rgba(42, 42, 58, 0.5); border-radius: 8px 8px 0 0; }
+        .panel-header h2 { margin: 0; border: none; padding: 0; }
+        .panel-controls { display: flex; gap: 4px; }
+        .panel-btn { width: 20px; height: 20px; padding: 0; margin: 0; border-radius: 50%; font-size: 10px; line-height: 20px; text-align: center; cursor: pointer; border: none; color: #fff; }
+        .panel-btn.close { background: rgba(255,255,255,0.4); }
+        .panel-btn.close:hover { background: rgba(255,255,255,0.3); }
+        .panel-btn.minimize { background: rgba(255,255,255,0.35); }
+        .panel-btn.minimize:hover { background: rgba(255,255,255,0.2); }
+        .panel.minimized .panel-content { display: none; }
+        .panel.minimized { max-height: none !important; }
+        
+        /* Panel toolbar */
+        #panel-toolbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(50, 49, 46, 0.95); border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; padding: 5px 15px; display: flex; gap: 8px; z-index: 100; backdrop-filter: blur(10px); }
+        .toolbar-btn { width: auto; padding: 5px 10px; margin: 0; font-size: 0.7em; border-radius: 12px; opacity: 0.6; }
+        .toolbar-btn.active { opacity: 1; background: rgba(255,255,255,0.3); }
+        
+        /* Testimonial styles */
+        #testimonial-badge { 
+            position: fixed; 
+            bottom: 20px; 
+            left: 20px; 
+            width: 24px;
+            height: 24px;
+            background: rgba(255,255,255,0.08); 
+            border-radius: 999px; 
+            cursor: pointer; 
+            z-index: 100; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.4);
+            transition: all 0.3s ease;
+        }
+        #testimonial-badge:hover { 
+            transform: scale(1.08); 
+            box-shadow: 0 6px 20px rgba(255, 255, 255, 0.6);
+        }
+        #testimonial-badge .icon {
+            font-size: 0.9em;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1;
+        }
+        
+        #testimonial-panel {
+            position: fixed;
+            bottom: 80px;
+            left: 20px;
+            width: 380px;
+            max-height: 70vh;
+            background: rgba(50, 49, 46, 0.98);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            z-index: 200;
+            display: none;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            backdrop-filter: blur(15px);
+        }
+        #testimonial-panel.show { display: block; animation: slideUp 0.3s ease; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        #testimonial-panel .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        #testimonial-panel .header h3 { 
+            color: rgba(255,255,255,0.3); 
+            font-size: 1.1em; 
+            margin: 0;
+        }
+        #testimonial-panel .close-btn { 
+            background: none; 
+            border: none; 
+            color: #888; 
+            font-size: 1.5em; 
+            cursor: pointer; 
+            width: auto;
+            padding: 0;
+        }
+        #testimonial-panel .close-btn:hover { color: #fff; }
+        
+        .testimonial-quote {
+            font-style: italic;
+            color: #a0a0a0;
+            padding: 10px 15px;
+            border-left: 3px solid rgba(255,255,255,0.3);
+            margin-bottom: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .benefit-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .benefit-card {
+            background: rgba(42, 42, 58, 0.5);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .benefit-card .number { 
+            font-size: 1.4em; 
+            font-weight: bold; 
+            color: rgba(255,255,255,0.35);
+            display: block;
+        }
+        .benefit-card .label { 
+            font-size: 0.75em; 
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .discovery-list {
+            margin: 15px 0;
+        }
+        .discovery-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.85em;
+        }
+        .discovery-item:last-child { border-bottom: none; }
+        .discovery-item .icon { font-size: 1.2em; }
+        .discovery-item .text { color: #a0a0a0; }
+        .discovery-item .highlight { color: rgba(255,255,255,0.35); font-weight: bold; }
+        
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .testimonial-author .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+        .testimonial-author .info .name { font-weight: bold; color: #fff; }
+        .testimonial-author .info .role { font-size: 0.8em; color: #888; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+        
+        <!-- Panel Toolbar -->
+        <div id="panel-toolbar">
+            <button class="toolbar-btn active" onclick="togglePanel('controls')" id="tb-controls">⚙️ Controls</button>
+            <button class="toolbar-btn" onclick="togglePanel('info-panel')" id="tb-info-panel">📋 Details</button>
+            <button class="toolbar-btn active" onclick="togglePanel('stats-panel')" id="tb-stats-panel">📈 Stats</button>
+            <button class="toolbar-btn active" onclick="togglePanel('graph-panel')" id="tb-graph-panel">🔍 Graph</button>
+            <button class="toolbar-btn" onclick="togglePanel('timeline-panel')" id="tb-timeline-panel">📊 Timeline</button>
+            <button class="toolbar-btn" onclick="togglePanel('governance-panel')" id="tb-governance-panel">🛡️ Governance</button>
+            <button class="toolbar-btn" onclick="togglePanel('playback-panel')" id="tb-playback-panel">▶️ Playback</button>
+        </div>
+        
+        <div id="loading" style="display:none">
+            <div class="spinner"></div>
+            <div id="loading-text">Analyzing...</div>
+        </div>
+        
+        <!-- Testimonial Badge (hover to read more) -->
+        <div id="testimonial-badge" onclick="toggleTestimonial()" title="Why this helps" aria-label="Why this helps">
+            <span class="icon">?</span>
+        </div>
+        
+        <!-- Testimonial Panel (shows on hover/click) -->
+        <div id="testimonial-panel">
+            <div class="header">
+                <h3>⭐ Why Code Visualizer is Helpful</h3>
+                <button class="close-btn" onclick="toggleTestimonial()">×</button>
+            </div>
+            
+            <div class="testimonial-quote">
+                "The Code Visualizer revealed insights I couldn't have found through manual file scanning. It's impossible to manually comprehend 1,270 files and 42,548 connections!"
+            </div>
+            
+            <h4 style="color:#888;margin:15px 0 10px;font-size:0.9em;">📊 What It Revealed</h4>
+            
+            <div class="benefit-grid">
+                <div class="benefit-card">
+                    <span class="number">1,270</span>
+                    <span class="label">Files Analyzed</span>
+                </div>
+                <div class="benefit-card">
+                    <span class="number">12,292</span>
+                    <span class="label">Functions Found</span>
+                </div>
+                <div class="benefit-card">
+                    <span class="number">3,252</span>
+                    <span class="label">API Endpoints</span>
+                </div>
+                <div class="benefit-card">
+                    <span class="number">42,548</span>
+                    <span class="label">Connections</span>
+                </div>
+            </div>
+            
+            <h4 style="color:#888;margin:15px 0 10px;font-size:0.9em;">🔍 Key Discoveries</h4>
+            
+            <div class="discovery-list">
+                <div class="discovery-item">
+                    <span class="icon">🔗</span>
+                    <span class="text"><span class="highlight">6 pipelines</span> auto-detected (agent, chat, memory, billing, login, registration)</span>
+                </div>
+                <div class="discovery-item">
+                    <span class="icon">🧠</span>
+                    <span class="text"><span class="highlight">1,419 memory nodes</span> across 21 services - memory is deeply integrated</span>
+                </div>
+                <div class="discovery-item">
+                    <span class="icon">🤖</span>
+                    <span class="text"><span class="highlight">7,064 nodes</span> in agent_execution - largest pipeline</span>
+                </div>
+                <div class="discovery-item">
+                    <span class="icon">⚠️</span>
+                    <span class="text"><span class="highlight">241 broken connections</span> identified - specific cleanup targets</span>
+                </div>
+                <div class="discovery-item">
+                    <span class="icon">⛓️</span>
+                    <span class="text"><span class="highlight">78 memory nodes</span> in blockchain_service - memory anchoring exists</span>
+                </div>
+                <div class="discovery-item">
+                    <span class="icon">🗄️</span>
+                    <span class="text"><span class="highlight">348 database queries</span> + 16 HTTP requests in memory flow</span>
+                </div>
+            </div>
+            
+            <div class="testimonial-author">
+                <div class="avatar">🤖</div>
+                <div class="info">
+                    <div class="name">Cascade AI</div>
+                    <div class="role">Architecture Analysis - Dec 29, 2025</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="controls">
+            <div class="panel-header" onmousedown="startDrag(event, 'controls')">
+                <h2>🔮 Code Visualizer Pro</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('controls')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('controls')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('single')">Single</div>
+                <div class="tab" onclick="switchTab('multi')">Multi-Folder</div>
+                <div class="tab" onclick="switchTab('compare')">Compare</div>
+            </div>
+            
+            <div id="tab-single" class="tab-content active">
+                <div class="control-group">
+                    <label>Upload Archive (zip / tar / tar.gz)</label>
+                    <input type="text" id="upload-project-name" placeholder="Project name (optional)" value="">
+                    <input type="file" id="upload-file" accept=".zip,.tar,.gz,.tgz">
+                    <button class="btn-success" onclick="uploadAndScan()">Upload &amp; Scan</button>
+                </div>
+
+                <div class="control-group">
+                    <label>GitHub Repository</label>
+                    <input type="text" id="github-repo-url" placeholder="https://github.com/owner/repo.git" value="">
+                    <input type="password" id="github-token" placeholder="GitHub token (optional for public repos)" value="">
+                    <input type="text" id="github-branch" placeholder="Branch (optional)" value="">
+                    <input type="text" id="github-project-name" placeholder="Project name (optional)" value="">
+                    <button class="btn-success" onclick="scanGithubSingle()">Connect &amp; Scan</button>
+                </div>
+            </div>
+            
+            <div id="tab-multi" class="tab-content">
+                <div class="explanation-box" style="margin-bottom:10px;">
+                    <div class="title">🔗 Unified Analysis</div>
+                    Analyze frontend + backend together as one codebase. Cross-project API connections will be detected automatically.
+                </div>
+                <div id="multi-paths-container">
+                    <div class="control-group multi-path-row">
+                        <label>Project 1</label>
+                        <input type="text" class="multi-label" placeholder="Label" value="project1">
+                        <input type="file" class="multi-file" accept=".zip,.tar,.gz,.tgz">
+                        <input type="text" class="multi-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                        <input type="password" class="multi-token" placeholder="GitHub token (optional)" value="">
+                        <input type="text" class="multi-branch" placeholder="Branch (optional)" value="">
+                        <input type="hidden" class="multi-analysis-id" value="">
+                        <button class="btn-secondary btn-small" onclick="scanMultiRow(this)">Scan</button>
+                    </div>
+                    <div class="control-group multi-path-row">
+                        <label>Project 2</label>
+                        <input type="text" class="multi-label" placeholder="Label" value="project2">
+                        <input type="file" class="multi-file" accept=".zip,.tar,.gz,.tgz">
+                        <input type="text" class="multi-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                        <input type="password" class="multi-token" placeholder="GitHub token (optional)" value="">
+                        <input type="text" class="multi-branch" placeholder="Branch (optional)" value="">
+                        <input type="hidden" class="multi-analysis-id" value="">
+                        <button class="btn-secondary btn-small" onclick="scanMultiRow(this)">Scan</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:5px;margin-bottom:10px;">
+                    <button class="btn-secondary btn-small" onclick="addMultiPath()">+ Add Folder</button>
+                    <button class="btn-secondary btn-small" onclick="removeMultiPath()">- Remove</button>
+                </div>
+                <button class="btn-success" onclick="analyzeMultiProject()">🔍 Analyze All Together</button>
+                <div id="multi-project-info" style="display:none;margin-top:10px;padding:8px;background:#262321;border-radius:4px;">
+                    <div class="stat"><span>Projects</span><span class="stat-value" id="multi-projects">-</span></div>
+                    <div class="stat"><span>Cross-Project Links</span><span class="stat-value success" id="multi-cross-links">-</span></div>
+                </div>
+            </div>
+            
+            <div id="tab-compare" class="tab-content">
+                <div class="control-group">
+                    <label>Project 1 (Oldest)</label>
+                    <input type="file" id="project1-file" accept=".zip,.tar,.gz,.tgz">
+                    <input type="text" id="project1-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                    <input type="password" id="project1-token" placeholder="GitHub token (optional)" value="">
+                    <input type="text" id="project1-branch" placeholder="Branch (optional)" value="">
+                    <input type="hidden" id="project1-analysis-id" value="">
+                    <button class="btn-secondary btn-small" onclick="scanCompareProject(1)">Scan</button>
+                    <input type="text" id="project1-label" placeholder="Label" value="6 Days Ago">
+                </div>
+                <div class="control-group">
+                    <label>Project 2</label>
+                    <input type="file" id="project2-file" accept=".zip,.tar,.gz,.tgz">
+                    <input type="text" id="project2-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                    <input type="password" id="project2-token" placeholder="GitHub token (optional)" value="">
+                    <input type="text" id="project2-branch" placeholder="Branch (optional)" value="">
+                    <input type="hidden" id="project2-analysis-id" value="">
+                    <button class="btn-secondary btn-small" onclick="scanCompareProject(2)">Scan</button>
+                    <input type="text" id="project2-label" placeholder="Label" value="4 Days Ago">
+                </div>
+                <div class="control-group">
+                    <label>Project 3 (Current)</label>
+                    <input type="file" id="project3-file" accept=".zip,.tar,.gz,.tgz">
+                    <input type="text" id="project3-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                    <input type="password" id="project3-token" placeholder="GitHub token (optional)" value="">
+                    <input type="text" id="project3-branch" placeholder="Branch (optional)" value="">
+                    <input type="hidden" id="project3-analysis-id" value="">
+                    <button class="btn-secondary btn-small" onclick="scanCompareProject(3)">Scan</button>
+                    <input type="text" id="project3-label" placeholder="Label" value="Current">
+                </div>
+                <button class="btn-warning" onclick="compareProjects()">Compare 3 Projects</button>
+            </div>
+            
+            <h3>Filters</h3>
+            <div class="control-group">
+                <label>Filter by Pipeline</label>
+                <select id="pipeline-filter" onchange="filterByPipeline()">
+                    <option value="">All Pipelines</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Filter by Service</label>
+                <select id="service-filter" onchange="filterByService()">
+                    <option value="">All Services</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Code Type</label>
+                <div class="toggle-row">
+                    <button class="toggle-btn active" id="btn-all" onclick="filterByType('all')">All</button>
+                    <button class="toggle-btn" id="btn-backend" onclick="filterByType('backend')">Backend</button>
+                    <button class="toggle-btn" id="btn-frontend" onclick="filterByType('frontend')">Frontend</button>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Search</label>
+                <input type="text" id="search-input" placeholder="Search files, functions..." oninput="searchNodes()">
+                <div id="search-results" style="max-height:100px;overflow-y:auto;"></div>
+            </div>
+            
+            <h3>Visualization</h3>
+            <div class="control-group">
+                <label>Layout Mode</label>
+                <select id="layout-mode" onchange="changeLayout()">
+                    <option value="circular">Circular (Services)</option>
+                    <option value="hierarchical">Hierarchical (Top-Down)</option>
+                    <option value="layered">Layered (By Type)</option>
+                    <option value="clustered">Clustered (Groups)</option>
+                    <option value="force">Force-Directed</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Heat Map</label>
+                <select id="heat-map-select" onchange="applyHeatMap()">
+                    <option value="">None</option>
+                    <option value="changes">Changes</option>
+                    <option value="instability">Instability</option>
+                    <option value="connections">Connection Density</option>
+                    <option value="weight">Code Weight</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>Show Level</label>
+                <select id="depth-filter" onchange="filterByDepth()">
+                    <option value="all">All Levels</option>
+                    <option value="services">Services Only</option>
+                    <option value="files">Services + Files</option>
+                    <option value="functions">All (with Functions)</option>
+                </select>
+            </div>
+            
+            <div class="toggle-row">
+                <button class="btn-secondary toggle-btn" onclick="showBrokenConnections()">Broken</button>
+                <button class="btn-secondary toggle-btn" onclick="showEndpoints()">Endpoints</button>
+                <button class="btn-secondary toggle-btn" onclick="showFunctions()">Functions</button>
+            </div>
+            
+            <div class="toggle-row">
+                <button class="btn-secondary toggle-btn" id="toggle-connections-btn" onclick="toggleConnections()">Hide Lines</button>
+                <button class="btn-secondary toggle-btn" onclick="showOnlyDirectConnections()">Direct Only</button>
+            </div>
+            
+            <button class="btn-secondary" onclick="showFullPipeline()">Full Pipeline Trace</button>
+            <button class="btn-secondary" onclick="resetView()">Reset View</button>
+            <button class="btn-secondary" onclick="exportForAI()">📋 Export for AI</button>
+            
+            <h3>🛡️ Governance</h3>
+            <button class="btn-success" onclick="runGovernance()">Run Reachability Analysis</button>
+            
+            <h3>🤖 AI Agent</h3>
+            <button class="btn-warning" onclick="openAgentPanel()" style="width:100%;">🧹 Graph Janitor Agent</button>
+            <div id="governance-summary" style="display:none;margin-top:8px;">
+                <div class="stat"><span>CI Status</span><span class="stat-value" id="gov-ci-status">-</span></div>
+                <div class="stat"><span>Live Nodes</span><span class="stat-value success" id="gov-live">-</span></div>
+                <div class="stat"><span>Invalid Nodes</span><span class="stat-value danger" id="gov-invalid">-</span></div>
+                <div class="stat"><span>Reachability</span><span class="stat-value" id="gov-reachability">-</span></div>
+                <div class="stat"><span>Violations</span><span class="stat-value warning" id="gov-violations">-</span></div>
+                <div style="margin-top:8px;">
+                    <button class="btn-small btn-success" onclick="showLiveNodes()">Show Live</button>
+                    <button class="btn-small btn-danger" onclick="showInvalidNodes()">Show Invalid</button>
+                    <button class="btn-small btn-warning" onclick="showViolations()">Violations</button>
+                </div>
+            </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="info-panel">
+            <div class="panel-header" onmousedown="startDrag(event, 'info-panel')">
+                <h2>📋 Node Details</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('info-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('info-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div id="node-details"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="timeline-panel">
+            <div class="panel-header" onmousedown="startDrag(event, 'timeline-panel')">
+                <h2>📊 Evolution Timeline</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('timeline-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('timeline-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div id="timeline-content"></div>
+            <h3>Breaking Changes</h3>
+            <div id="breaking-changes"></div>
+            <h3>Code Drift</h3>
+            <div id="drift-info"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="pipeline-view-panel" style="display:none;top:50px;left:50%;transform:translateX(-50%);width:600px;max-height:80vh;overflow-y:auto;z-index:200;">
+            <div class="panel-header" onmousedown="startDrag(event, 'pipeline-view-panel')">
+                <h2>🔗 Execution Pipeline</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('pipeline-view-panel')">−</button>
+                    <button class="panel-btn close" onclick="closePipelineView()">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div id="pipeline-start-node" style="font-size:0.9em;color:rgba(255,255,255,0.3);margin-bottom:10px;"></div>
+                <div style="display:flex;gap:10px;margin-bottom:15px;">
+                    <button class="btn-small" onclick="animatePipeline()">▶️ Animate Flow</button>
+                    <button class="btn-small btn-secondary" onclick="exportPipelineForAI()">📋 Export Chain</button>
+                    <button class="btn-small btn-warning" onclick="isolatePipeline()">🔍 Isolate View</button>
+                </div>
+                <div id="pipeline-stats" style="display:flex;gap:15px;margin-bottom:15px;font-size:0.85em;">
+                    <span>Steps: <strong id="pipe-steps">0</strong></span>
+                    <span>Files: <strong id="pipe-files">0</strong></span>
+                    <span>Functions: <strong id="pipe-funcs">0</strong></span>
+                </div>
+                <div id="pipeline-flow" style="position:relative;"></div>
+                <h4 style="margin-top:15px;">Execution Order</h4>
+                <div id="pipeline-sequence" style="font-size:0.85em;"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="stats-panel">
+            <div class="panel-header" onmousedown="startDrag(event, 'stats-panel')">
+                <h2>📈 Statistics</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('stats-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('stats-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div class="stat"><span>Files</span><span class="stat-value" id="stat-files">0</span></div>
+            <div class="stat"><span>Services</span><span class="stat-value" id="stat-services">0</span></div>
+            <div class="stat"><span>Connections</span><span class="stat-value" id="stat-connections">0</span></div>
+            <div class="stat"><span>Endpoints</span><span class="stat-value" id="stat-endpoints">0</span></div>
+            <div class="stat"><span>Broken</span><span class="stat-value danger" id="stat-broken">0</span></div>
+            <div class="stat"><span>Drift Score</span><span class="stat-value warning" id="stat-drift">-</span></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="governance-panel" style="display:none;top:10px;left:480px;width:320px;max-height:80vh;overflow-y:auto;">
+            <div class="panel-header" onmousedown="startDrag(event, 'governance-panel')">
+                <h2>🛡️ Governance Report</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('governance-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('governance-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div id="governance-details"></div>
+            </div>
+        </div>
+        
+        <div class="panel" id="graph-panel">
+            <div class="panel-header" onmousedown="startDrag(event, 'graph-panel')">
+                <h2>🔍 Graph Analysis</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('graph-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('graph-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div class="explanation-box">
+                <div class="title" id="layout-type">Layout: -</div>
+                <div id="layout-explanation">Analyze a codebase to see graph structure</div>
+            </div>
+            <div class="stat"><span>Density</span><span class="stat-value" id="graph-density">-</span></div>
+            <div class="stat"><span>Hub Nodes</span><span class="stat-value" id="graph-hubs">-</span></div>
+            <div class="stat"><span>Isolated</span><span class="stat-value danger" id="graph-isolated">-</span></div>
+            <h3>Legend</h3>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>Service</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.4)"></div>File</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Function</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>API Endpoint</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Active/Live</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.4)"></div>Broken/Invalid</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Modified/Dormant</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>Experimental</div>
+            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.25)"></div>Deprecated</div>
+            </div>
+        </div>
+        
+        <div class="panel" id="agent-panel" style="display:none;top:10px;right:10px;width:380px;max-height:85vh;overflow-y:auto;">
+            <div class="panel-header" onmousedown="startDrag(event, 'agent-panel')">
+                <h2>🤖 Graph Janitor Agent</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('agent-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('agent-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div id="agent-status" style="padding:10px;background:#262321;border-radius:4px;margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span id="agent-health-emoji">⚪</span>
+                        <span id="agent-health-status">Not initialized</span>
+                        <span id="agent-health-score">-</span>
+                    </div>
+                </div>
+                
+                <div style="display:flex;gap:8px;margin-bottom:15px;">
+                    <button class="btn-success" onclick="runAgentScan()" style="flex:1;">🔍 Scan</button>
+                    <button class="btn-warning" onclick="executeApprovedActions()" style="flex:1;">⚡ Execute</button>
+                </div>
+                
+                <div id="agent-metrics" style="display:none;margin-bottom:15px;">
+                    <h4 style="margin:0 0 8px 0;">📊 Metrics</h4>
+                    <div class="stat"><span>Reachability</span><span class="stat-value" id="agent-reachability">-</span></div>
+                    <div class="stat"><span>Unreachable Nodes</span><span class="stat-value danger" id="agent-unreachable">-</span></div>
+                    <div class="stat"><span>Isolated Nodes</span><span class="stat-value warning" id="agent-isolated">-</span></div>
+                    <div class="stat"><span>Orphan Endpoints</span><span class="stat-value" id="agent-orphans">-</span></div>
+                </div>
+                
+                <div id="agent-memory" style="display:none;margin-bottom:15px;">
+                    <h4 style="margin:0 0 8px 0;">🧠 Agent Memory</h4>
+                    <div class="stat"><span>Current Epoch</span><span class="stat-value" id="agent-epoch">-</span></div>
+                    <div class="stat"><span>False Positive Rate</span><span class="stat-value" id="agent-fpr">-</span></div>
+                    <div class="stat"><span>Sandbox Mode</span><span class="stat-value warning" id="agent-sandbox">ON</span></div>
+                    <div style="margin-top:8px;font-size:0.8em;color:#a0a0a0;">
+                        Agent remembers past proposals and avoids re-proposing rejected nodes.
+                    </div>
+                </div>
+                
+                <div id="agent-recommendations" style="display:none;margin-bottom:15px;">
+                    <h4 style="margin:0 0 8px 0;">💡 Recommendations</h4>
+                    <div id="agent-recs-list" style="font-size:0.85em;"></div>
+                </div>
+                
+                <div id="agent-proposals" style="display:none;">
+                    <h4 style="margin:0 0 8px 0;">📋 Proposals (<span id="proposal-count">0</span>)</h4>
+                    <div id="proposals-list"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="minimap-panel" style="bottom:10px;right:10px;top:auto;left:auto;width:200px;height:200px;">
+            <div class="panel-header" onmousedown="startDrag(event, 'minimap-panel')">
+                <h2>🗺️ Minimap</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('minimap-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('minimap-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content" style="padding:5px;">
+                <canvas id="minimap-canvas" width="180" height="140" style="background:#32312E;border-radius:4px;cursor:crosshair;"></canvas>
+                <div style="font-size:0.7em;margin-top:5px;color:#a0a0a0;">
+                    <span id="minimap-info">Click to navigate</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel" id="playback-panel">
+            <div class="panel-header" onmousedown="startDrag(event, 'playback-panel')">
+                <h2>▶️ Timeline Playback</h2>
+                <div class="panel-controls">
+                    <button class="panel-btn minimize" onclick="minimizePanel('playback-panel')">−</button>
+                    <button class="panel-btn close" onclick="hidePanel('playback-panel')">×</button>
+                </div>
+            </div>
+            <div class="panel-content">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                <button class="btn-small btn-secondary" onclick="playbackPrev()" id="btn-prev">⏮</button>
+                <button class="btn-small btn-success" onclick="playbackToggle()" id="btn-play">▶️ Play</button>
+                <button class="btn-small btn-secondary" onclick="playbackNext()" id="btn-next">⏭</button>
+                <select id="playback-speed" style="width:80px" onchange="setPlaybackSpeed()">
+                    <option value="2000">Slow</option>
+                    <option value="1000" selected>Normal</option>
+                    <option value="500">Fast</option>
+                </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <input type="range" id="timeline-slider" min="0" max="2" value="0" style="flex:1" oninput="sliderChange()">
+                <span id="current-version">-</span>
+            </div>
+            <div id="playback-info" style="margin-top:10px;padding:8px;background:#262321;border-radius:4px;">
+                <div id="playback-label" style="font-weight:bold;color:rgba(255,255,255,0.3)">Select projects to compare</div>
+                <div id="playback-stats" style="font-size:0.85em;color:#a0a0a0"></div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // Base-path shim: when proxied under /code-visualizer/, rewrite '/api/*' to 'api/*'
+        // so all existing fetch('/api/...') calls continue to work.
+        (function() {
+            const originalFetch = window.fetch;
+            window.fetch = function(input, init) {
+                try {
+                    if (typeof input === 'string' && input.startsWith('/api/')) {
+                        input = 'api/' + input.slice('/api/'.length);
+                    }
+                } catch (e) {
+                    // ignore
+                }
+                return originalFetch(input, init);
+            };
+        })();
+
+        let scene, camera, renderer, controls;
+        let nodeObjects = {}, connectionObjects = [];
+        let analysisId = null, comparisonId = null;
+        let graphData = null, comparisonData = null;
+        let nodeById = {};
+        let raycaster, mouse;
+        let selectedNode = null, hoveredNode = null;
+        let currentMode = 'single';
+        let currentHeatMap = '';
+        
+        // Timeline playback state
+        let projectSnapshots = [];
+        let currentSnapshotIndex = 0;
+        let isPlaying = false;
+        let playbackInterval = null;
+        let playbackSpeed = 3000;
+
+        let currentSnapshotData = null;
+        let currentSnapshotDataAnalysisId = null;
+        let snapshotRenderToken = 0;
+        
+        // UI state
+        let connectionsVisible = true;
+        
+        const NODE_COLORS = { service: 0x667eea, file: 0x4ECDC4, function: 0xF39C12, class: 0xE67E22, api_endpoint: 0x9B59B6 };
+        const CHANGE_COLORS = { added: 0x2ECC71, removed: 0xE74C3C, modified: 0xF39C12, unchanged: 0x4ECDC4 };
+        const CONNECTION_COLORS = { active: 0x2ECC71, broken: 0xE74C3C, dead: 0x95A5A6 };
+
+        // ============ PANEL DRAG & VISIBILITY ============
+        let draggedPanel = null;
+        let dragOffset = { x: 0, y: 0 };
+        
+        function startDrag(e, panelId) {
+            if (e.target.classList.contains('panel-btn')) return;
+            e.preventDefault();
+            draggedPanel = document.getElementById(panelId);
+            const rect = draggedPanel.getBoundingClientRect();
+            dragOffset.x = e.clientX - rect.left;
+            dragOffset.y = e.clientY - rect.top;
+            draggedPanel.style.zIndex = 50;
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+        
+        function onDrag(e) {
+            if (!draggedPanel) return;
+            const x = e.clientX - dragOffset.x;
+            const y = e.clientY - dragOffset.y;
+            draggedPanel.style.left = Math.max(0, Math.min(window.innerWidth - 100, x)) + 'px';
+            draggedPanel.style.top = Math.max(0, Math.min(window.innerHeight - 50, y)) + 'px';
+            draggedPanel.style.right = 'auto';
+            draggedPanel.style.bottom = 'auto';
+            draggedPanel.style.transform = 'none';
+        }
+        
+        function stopDrag() {
+            if (draggedPanel) draggedPanel.style.zIndex = 10;
+            draggedPanel = null;
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+        
+        function hidePanel(panelId) {
+            const panel = document.getElementById(panelId);
+            panel.style.display = 'none';
+            const btn = document.getElementById('tb-' + panelId);
+            if (btn) btn.classList.remove('active');
+        }
+        
+        function showPanel(panelId) {
+            const panel = document.getElementById(panelId);
+            panel.style.display = 'block';
+            const btn = document.getElementById('tb-' + panelId);
+            if (btn) btn.classList.add('active');
+        }
+        
+        function togglePanel(panelId) {
+            const panel = document.getElementById(panelId);
+            const isHidden = panel.style.display === 'none' || getComputedStyle(panel).display === 'none';
+            if (isHidden) {
+                showPanel(panelId);
+            } else {
+                hidePanel(panelId);
+            }
+        }
+
+        async function uploadAndScan() {
+            const fileInput = document.getElementById('upload-file');
+            const nameInput = document.getElementById('upload-project-name');
+
+            const file = (fileInput && fileInput.files && fileInput.files[0]) ? fileInput.files[0] : null;
+            if (!file) {
+                alert('Choose a .zip / .tar / .tar.gz file');
+                return;
+            }
+
+            // Client-side safeguard: avoid silent proxy limits (common 413).
+            const maxUploadMb = 50;
+            const sizeMb = file.size / (1024 * 1024);
+            if (sizeMb > maxUploadMb) {
+                alert(`File too large (${sizeMb.toFixed(1)}MB). Browser upload limit is ${maxUploadMb}MB.`);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('auto_save', 'true');
+
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const chatId = params.get('chat_id');
+                const projectId = params.get('project_id');
+                if (chatId) formData.append('chat_id', chatId);
+                if (projectId) formData.append('project_id', projectId);
+            } catch (e) {
+                // ignore
+            }
+            if (nameInput && nameInput.value && nameInput.value.trim()) {
+                formData.append('project_name', nameInput.value.trim());
+            }
+
+            showLoading('Uploading & analyzing archive...');
+            try {
+                const response = await fetch('scan/upload', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include',
+                });
+
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    let detail = '';
+                    try {
+                        const asJson = JSON.parse(text || '{}');
+                        detail = asJson?.detail || '';
+                    } catch (e) {
+                        detail = (text || '').slice(0, 300);
+                    }
+                    const msg = detail || `Upload failed (HTTP ${response.status})`;
+                    throw new Error(msg);
+                }
+
+                const result = await response.json();
+                analysisId = result.analysis_id;
+                if (!analysisId) {
+                    throw new Error('Missing analysis_id');
+                }
+
+                const dataResponse = await fetch(`/api/analysis/${analysisId}`);
+                graphData = await dataResponse.json();
+                nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+
+                updateStats(graphData.stats);
+                populateFilters(graphData);
+                renderGraph(graphData);
+                await loadGraphStructure();
+            } catch (error) {
+                alert('Upload scan failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function scanGithubSingle() {
+            const repoUrl = (document.getElementById('github-repo-url')?.value || '').trim();
+            const token = (document.getElementById('github-token')?.value || '').trim();
+            const branch = (document.getElementById('github-branch')?.value || '').trim();
+            const projectName = (document.getElementById('github-project-name')?.value || '').trim();
+
+            if (!repoUrl) {
+                alert('Enter a GitHub repo URL');
+                return;
+            }
+
+            showLoading('Cloning & analyzing repository...');
+            try {
+                const payload = {
+                    repo_url: repoUrl,
+                    token: token || null,
+                    branch: branch || null,
+                    project_name: projectName || null,
+                    metadata: {},
+                };
+
+                const response = await fetch('scan/github', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    credentials: 'include',
+                });
+
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    let detail = '';
+                    try {
+                        const asJson = JSON.parse(text || '{}');
+                        detail = asJson?.detail || '';
+                    } catch (e) {
+                        detail = (text || '').slice(0, 300);
+                    }
+                    const msg = detail || `GitHub scan failed (HTTP ${response.status})`;
+                    throw new Error(msg);
+                }
+
+                const result = await response.json();
+                analysisId = result.analysis_id;
+                if (!analysisId) {
+                    throw new Error('Missing analysis_id');
+                }
+
+                const dataResponse = await fetch(`/api/analysis/${analysisId}`);
+                graphData = await dataResponse.json();
+                nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+
+                updateStats(graphData.stats);
+                populateFilters(graphData);
+                renderGraph(graphData);
+                await loadGraphStructure();
+            } catch (error) {
+                alert('GitHub scan failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function scanMultiRow(btn) {
+            const row = btn?.closest?.('.multi-path-row');
+            if (!row) return;
+
+            const label = (row.querySelector('.multi-label')?.value || '').trim() || 'project';
+            const file = row.querySelector('.multi-file')?.files?.[0] || null;
+            const repoUrl = (row.querySelector('.multi-repo-url')?.value || '').trim();
+            const token = (row.querySelector('.multi-token')?.value || '').trim();
+            const branch = (row.querySelector('.multi-branch')?.value || '').trim();
+            const analysisField = row.querySelector('.multi-analysis-id');
+
+            if (!file && !repoUrl) {
+                alert('Choose a zip/tar file or enter a GitHub repo URL');
+                return;
+            }
+
+            showLoading('Scanning project...');
+            try {
+                let result = null;
+                if (file) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('auto_save', 'true');
+                    formData.append('project_name', label);
+
+                    const response = await fetch('scan/upload', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'include',
+                    });
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => '');
+                        let detail = '';
+                        try {
+                            const asJson = JSON.parse(text || '{}');
+                            detail = asJson?.detail || '';
+                        } catch (e) {
+                            detail = (text || '').slice(0, 300);
+                        }
+                        throw new Error(detail || `Upload failed (HTTP ${response.status})`);
+                    }
+                    result = await response.json();
+                } else {
+                    const payload = {
+                        repo_url: repoUrl,
+                        token: token || null,
+                        branch: branch || null,
+                        project_name: label,
+                        metadata: {},
+                    };
+                    const response = await fetch('scan/github', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        credentials: 'include',
+                    });
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => '');
+                        let detail = '';
+                        try {
+                            const asJson = JSON.parse(text || '{}');
+                            detail = asJson?.detail || '';
+                        } catch (e) {
+                            detail = (text || '').slice(0, 300);
+                        }
+                        throw new Error(detail || `GitHub scan failed (HTTP ${response.status})`);
+                    }
+                    result = await response.json();
+                }
+
+                const aid = result?.analysis_id;
+                if (!aid) throw new Error('Missing analysis_id');
+                if (analysisField) analysisField.value = aid;
+            } catch (error) {
+                alert('Scan failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function scanCompareProject(idx) {
+            const i = String(idx || '').trim();
+            if (!i) return;
+
+            const label = (document.getElementById(`project${i}-label`)?.value || '').trim() || `project${i}`;
+            const file = document.getElementById(`project${i}-file`)?.files?.[0] || null;
+            const repoUrl = (document.getElementById(`project${i}-repo-url`)?.value || '').trim();
+            const token = (document.getElementById(`project${i}-token`)?.value || '').trim();
+            const branch = (document.getElementById(`project${i}-branch`)?.value || '').trim();
+            const analysisField = document.getElementById(`project${i}-analysis-id`);
+
+            if (!file && !repoUrl) {
+                alert('Choose a zip/tar file or enter a GitHub repo URL');
+                return;
+            }
+
+            showLoading('Scanning project...');
+            try {
+                let result = null;
+                if (file) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('auto_save', 'true');
+                    formData.append('project_name', label);
+
+                    const response = await fetch('scan/upload', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'include',
+                    });
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => '');
+                        let detail = '';
+                        try {
+                            const asJson = JSON.parse(text || '{}');
+                            detail = asJson?.detail || '';
+                        } catch (e) {
+                            detail = (text || '').slice(0, 300);
+                        }
+                        throw new Error(detail || `Upload failed (HTTP ${response.status})`);
+                    }
+                    result = await response.json();
+                } else {
+                    const payload = {
+                        repo_url: repoUrl,
+                        token: token || null,
+                        branch: branch || null,
+                        project_name: label,
+                        metadata: {},
+                    };
+                    const response = await fetch('scan/github', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        credentials: 'include',
+                    });
+                    if (!response.ok) {
+                        const text = await response.text().catch(() => '');
+                        let detail = '';
+                        try {
+                            const asJson = JSON.parse(text || '{}');
+                            detail = asJson?.detail || '';
+                        } catch (e) {
+                            detail = (text || '').slice(0, 300);
+                        }
+                        throw new Error(detail || `GitHub scan failed (HTTP ${response.status})`);
+                    }
+                    result = await response.json();
+                }
+
+                const aid = result?.analysis_id;
+                if (!aid) throw new Error('Missing analysis_id');
+                if (analysisField) analysisField.value = aid;
+            } catch (error) {
+                alert('Scan failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function minimizePanel(panelId) {
+            const panel = document.getElementById(panelId);
+            panel.classList.toggle('minimized');
+            const btn = panel.querySelector('.panel-btn.minimize');
+            btn.textContent = panel.classList.contains('minimized') ? '+' : '−';
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a1a);
+            scene.fog = new THREE.FogExp2(0x0a0a1a, 0.002);
+            
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(0, 100, 200);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0x667eea, 1, 500);
+            pointLight.position.set(0, 100, 0);
+            scene.add(pointLight);
+            
+            const gridHelper = new THREE.GridHelper(400, 40, 0x333333, 0x222222);
+            scene.add(gridHelper);
+            
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('click', onMouseClick);
+            
+            animate();
+
+            // If opened with ?analysis_id=..., auto-load and render that analysis.
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                const preloaded = params.get('analysis_id');
+                if (preloaded) {
+                    showLoading('Loading analysis...');
+                    (async () => {
+                        try {
+                            analysisId = preloaded;
+                            const dataResponse = await fetch(`/api/analysis/${analysisId}`);
+                            graphData = await dataResponse.json();
+                            nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+                            updateStats(graphData.stats);
+                            populateFilters(graphData);
+                            renderGraph(graphData);
+                            await loadGraphStructure();
+                        } catch (e) {
+                            // ignore
+                        } finally {
+                            hideLoading();
+                        }
+                    })();
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const meshes = Object.values(nodeObjects).map(n => n.mesh);
+            const intersects = raycaster.intersectObjects(meshes);
+            
+            if (intersects.length > 0) {
+                const nodeId = intersects[0].object.userData.nodeId;
+                if (hoveredNode !== nodeId && nodeObjects[nodeId]) {
+                    if (hoveredNode && nodeObjects[hoveredNode]) nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                    hoveredNode = nodeId;
+                    nodeObjects[hoveredNode].mesh.scale.setScalar(1.3);
+                    document.body.style.cursor = 'pointer';
+                }
+            } else {
+                if (hoveredNode && nodeObjects[hoveredNode]) nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                hoveredNode = null;
+                document.body.style.cursor = 'default';
+            }
+        }
+        
+        function onMouseClick() { if (hoveredNode) selectNode(hoveredNode); }
+        
+        function selectNode(nodeId) {
+            selectedNode = nodeId;
+            const node = nodeById?.[nodeId] || graphData?.nodes?.find(n => n.id === nodeId);
+            if (!node) return;
+            
+            document.getElementById('info-panel').style.display = 'block';
+            
+            const incomingConns = graphData.connections.filter(c => c.target_id === nodeId);
+            const outgoingConns = graphData.connections.filter(c => c.source_id === nodeId);
+            
+            let html = `<div style="margin-bottom:10px"><strong>Name:</strong> ${node.name}<br><strong>Type:</strong> ${node.type}<br><strong>Service:</strong> ${node.service}<br><strong>File:</strong> ${node.file_path}</div>`;
+            
+            if (node.metadata?.http_method) {
+                html += `<div style="color:rgba(255,255,255,0.3)"><strong>${node.metadata.http_method}</strong> ${node.metadata.route_path || ''}</div>`;
+            }
+            
+            html += `<h3>Incoming (${incomingConns.length})</h3><div style="max-height:100px;overflow-y:auto">`;
+            incomingConns.slice(0, 20).forEach(c => {
+                html += `<div class="change-item">${c.source_id.split(':').pop()} → ${c.type}</div>`;
+            });
+            html += `</div>`;
+            
+            html += `<h3>Outgoing (${outgoingConns.length})</h3><div style="max-height:100px;overflow-y:auto">`;
+            outgoingConns.slice(0, 20).forEach(c => {
+                html += `<div class="change-item">${c.type} → ${c.target_id.split(':').pop()}</div>`;
+            });
+            html += `</div>`;
+            
+            html += `<button onclick="traceExecution('${nodeId}')" style="margin-top:10px">Trace Execution</button>`;
+            html += `<button class="btn-secondary" onclick="traceFullPipeline('${nodeId}')" style="margin-top:5px">Full Pipeline</button>`;
+            
+            document.getElementById('node-details').innerHTML = html;
+            highlightConnections(nodeId);
+        }
+        
+        function highlightConnections(nodeId) {
+            connectionObjects.forEach(conn => {
+                if (conn.userData.source === nodeId || conn.userData.target === nodeId) {
+                    conn.material.color.setHex(0xFFFFFF);
+                    conn.material.opacity = 1;
+                } else {
+                    conn.material.opacity = 0.1;
+                }
+            });
+        }
+        
+        function switchTab(tab) {
+            currentMode = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            const tabIndex = tab === 'single' ? 1 : (tab === 'multi' ? 2 : 3);
+            document.querySelector(`.tab:nth-child(${tabIndex})`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            document.getElementById('timeline-panel').style.display = tab === 'compare' ? 'block' : 'none';
+        }
+        
+        function addMultiPath() {
+            const container = document.getElementById('multi-paths-container');
+            const count = container.querySelectorAll('.multi-path-row').length + 1;
+            const row = document.createElement('div');
+            row.className = 'control-group multi-path-row';
+            row.innerHTML = `
+                <label>Project ${count}</label>
+                <input type="text" class="multi-label" placeholder="Label" value="project${count}">
+                <input type="file" class="multi-file" accept=".zip,.tar,.gz,.tgz">
+                <input type="text" class="multi-repo-url" placeholder="GitHub repo URL (optional)" value="">
+                <input type="password" class="multi-token" placeholder="GitHub token (optional)" value="">
+                <input type="text" class="multi-branch" placeholder="Branch (optional)" value="">
+                <input type="hidden" class="multi-analysis-id" value="">
+                <button class="btn-secondary btn-small" onclick="scanMultiRow(this)">Scan</button>
+            `;
+            container.appendChild(row);
+        }
+        
+        function removeMultiPath() {
+            const container = document.getElementById('multi-paths-container');
+            const rows = container.querySelectorAll('.multi-path-row');
+            if (rows.length > 1) {
+                rows[rows.length - 1].remove();
+            }
+        }
+        
+        async function analyzeMultiProject() {
+            const rows = document.querySelectorAll('.multi-path-row');
+            const analyses = [];
+
+            rows.forEach((row, i) => {
+                const label = (row.querySelector('.multi-label')?.value || '').trim() || `project${i + 1}`;
+                const aid = (row.querySelector('.multi-analysis-id')?.value || '').trim();
+                if (aid) {
+                    analyses.push({ analysis_id: aid, label });
+                }
+            });
+
+            if (analyses.length < 2) {
+                alert('Scan at least 2 projects, then click Analyze All Together');
+                return;
+            }
+
+            showLoading('Merging projects as unified codebase...');
+
+            try {
+                const response = await fetch('/api/analysis/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ analyses }),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Merge failed');
+                }
+
+                const result = await response.json();
+                analysisId = result.analysis_id;
+
+                const dataResponse = await fetch(`/api/analysis/${analysisId}`);
+                graphData = await dataResponse.json();
+                nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+
+                document.getElementById('multi-project-info').style.display = 'block';
+                document.getElementById('multi-projects').textContent = (result.projects || []).join(', ');
+                document.getElementById('multi-cross-links').textContent = (result.stats && result.stats.cross_project_connections) ? result.stats.cross_project_connections : 0;
+
+                updateStats(graphData.stats);
+                populateFilters(graphData);
+                renderGraph(graphData);
+                await loadGraphStructure();
+            } catch (error) {
+                alert('Multi-project analysis failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        async function analyzeCodebase() {
+            const el = document.getElementById('path-input');
+            if (!el) return;
+            const path = el.value;
+            if (!path) return;
+            
+            showLoading('Analyzing codebase...');
+            
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                const result = await response.json();
+                analysisId = result.analysis_id;
+                
+                const dataResponse = await fetch(`/api/analysis/${analysisId}`);
+                graphData = await dataResponse.json();
+                nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+                
+                updateStats(graphData.stats);
+                populateFilters(graphData);
+                renderGraph(graphData);
+                await loadGraphStructure();
+                
+            } catch (error) {
+                alert('Analysis failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        async function compareProjects() {
+            const projects = [
+                { analysis_id: (document.getElementById('project1-analysis-id')?.value || '').trim(), label: document.getElementById('project1-label')?.value || '' },
+                { analysis_id: (document.getElementById('project2-analysis-id')?.value || '').trim(), label: document.getElementById('project2-label')?.value || '' },
+                { analysis_id: (document.getElementById('project3-analysis-id')?.value || '').trim(), label: document.getElementById('project3-label')?.value || '' }
+            ].filter(p => p.analysis_id);
+            
+            if (projects.length < 2) {
+                alert('Need at least 2 projects to compare');
+                return;
+            }
+            
+            showLoading('Comparing projects...');
+            
+            try {
+                const response = await fetch('/api/compare-by-analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ projects })
+                });
+                const result = await response.json();
+                comparisonId = result.comparison_id;
+                
+                const dataResponse = await fetch(`/api/comparison/${comparisonId}`);
+                comparisonData = await dataResponse.json();
+                
+                // Use latest project as main graph
+                const latestProject = comparisonData.projects[comparisonData.projects.length - 1];
+
+                analysisId = latestProject.analysis_id;
+                if (!analysisId) {
+                    throw new Error('Missing analysis_id for latest project');
+                }
+
+                const graphResponse = await fetch(`/api/analysis/${analysisId}`);
+                graphData = await graphResponse.json();
+                nodeById = Object.fromEntries((graphData.nodes || []).map(n => [n.id, n]));
+                
+                updateStats(latestProject.stats);
+                document.getElementById('stat-drift').textContent = comparisonData.drift_analysis?.drift_score?.toFixed(1) + '%' || '-';
+                
+                populateFilters(graphData);
+                renderComparisonGraph(graphData, comparisonData);
+                displayTimeline(comparisonData);
+                await loadGraphStructure();
+                
+                // Show playback panel and initialize
+                document.getElementById('playback-panel').style.display = 'block';
+                await initPlayback();
+                
+            } catch (error) {
+                console.error(error);
+                alert('Comparison failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function displayTimeline(data) {
+            let html = '';
+            data.evolution_timeline.forEach((item, i) => {
+                const isCurrent = i === data.evolution_timeline.length - 1;
+                html += `<div class="timeline-item ${isCurrent ? 'current' : ''}">
+                    <div class="label">${item.label}</div>
+                    <div>Files: ${item.stats.total_files}</div>`;
+                if (item.changes_from_previous) {
+                    const delta = item.changes_from_previous;
+                    html += `<div class="delta ${delta.files_delta >= 0 ? 'positive' : 'negative'}">
+                        Δ Files: ${delta.files_delta > 0 ? '+' : ''}${delta.files_delta} | 
+                        Δ Broken: ${delta.broken_delta > 0 ? '+' : ''}${delta.broken_delta}
+                    </div>`;
+                }
+                html += `</div>`;
+            });
+            document.getElementById('timeline-content').innerHTML = html;
+            
+            // Breaking changes
+            let breakingHtml = '';
+            data.breaking_changes.slice(0, 5).forEach(bc => {
+                breakingHtml += `<div class="change-item removed">
+                    <span class="badge ${bc.severity}">${bc.severity}</span>
+                    ${bc.description}
+                </div>`;
+            });
+            document.getElementById('breaking-changes').innerHTML = breakingHtml || '<div style="color:rgba(255,255,255,0.35)">No breaking changes detected</div>';
+            
+            // Drift info
+            const drift = data.drift_analysis;
+            document.getElementById('drift-info').innerHTML = `
+                <div class="explanation-box">
+                    <div class="title">Drift Score: ${drift.drift_score?.toFixed(1)}%</div>
+                    <div>${drift.drift_interpretation}</div>
+                    <div style="margin-top:5px">Added: ${drift.files_added} | Removed: ${drift.files_removed} | Modified: ${drift.files_modified}</div>
+                </div>
+            `;
+        }
+        
+        function renderComparisonGraph(data, comparison) {
+            clearGraph();
+            
+            const changeMap = {};
+            comparison.file_changes.forEach(fc => {
+                changeMap[fc.file_path] = fc;
+            });
+            
+            const servicePositions = {};
+            const serviceCount = Object.keys(data.services).length;
+            let serviceIndex = 0;
+            
+            Object.keys(data.services).forEach(serviceName => {
+                const angle = (serviceIndex / serviceCount) * Math.PI * 2;
+                servicePositions[serviceName] = { x: Math.cos(angle) * 100, z: Math.sin(angle) * 100, y: 0 };
+                serviceIndex++;
+            });
+            
+            data.nodes.forEach(node => {
+                const basePos = servicePositions[node.service] || { x: 0, y: 0, z: 0 };
+                const change = changeMap[node.file_path];
+                
+                let color = NODE_COLORS[node.type] || 0xffffff;
+                let size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : 2;
+                
+                if (change) {
+                    color = CHANGE_COLORS[change.change_type] || color;
+                    if (change.change_type === 'modified') size *= 1.2;
+                    if (change.change_type === 'added') size *= 1.3;
+                }
+                
+                const position = {
+                    x: basePos.x + (Math.random() - 0.5) * 30,
+                    y: (node.type === 'service' ? 50 : 10 + Math.random() * 40),
+                    z: basePos.z + (Math.random() - 0.5) * 30
+                };
+                
+                createNode(node, position, size, color);
+            });
+            
+            data.connections.forEach(conn => createConnection(conn));
+        }
+        
+        async function loadGraphStructure() {
+            if (!analysisId) return;
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/graph-structure`);
+                const structure = await response.json();
+                
+                document.getElementById('layout-type').textContent = `Layout: ${structure.layout_type}`;
+                document.getElementById('layout-explanation').textContent = structure.layout_explanation;
+                document.getElementById('graph-density').textContent = structure.metrics.connection_density;
+                document.getElementById('graph-hubs').textContent = structure.metrics.hub_count;
+                document.getElementById('graph-isolated').textContent = structure.metrics.isolated_count;
+                
+            } catch (error) {
+                console.error('Failed to load graph structure:', error);
+            }
+        }
+        
+        function updateStats(stats) {
+            document.getElementById('stat-files').textContent = stats.total_files;
+            document.getElementById('stat-services').textContent = stats.total_services;
+            document.getElementById('stat-connections').textContent = stats.total_connections;
+            document.getElementById('stat-endpoints').textContent = stats.total_endpoints;
+            document.getElementById('stat-broken').textContent = stats.broken_connections;
+        }
+        
+        function populateFilters(data) {
+            const pipelineSelect = document.getElementById('pipeline-filter');
+            pipelineSelect.innerHTML = '<option value="">All Pipelines</option>';
+            Object.keys(data.pipelines || {}).forEach(name => {
+                pipelineSelect.innerHTML += `<option value="${name}">${name.replace(/_/g, ' ')}</option>`;
+            });
+            
+            const serviceSelect = document.getElementById('service-filter');
+            serviceSelect.innerHTML = '<option value="">All Services</option>';
+            Object.keys(data.services || {}).forEach(name => {
+                serviceSelect.innerHTML += `<option value="${name}">${name}</option>`;
+            });
+        }
+        
+        function renderGraph(data) {
+            clearGraph();
+            
+            const servicePositions = {};
+            const serviceCount = Object.keys(data.services).length;
+            let serviceIndex = 0;
+            
+            Object.keys(data.services).forEach(serviceName => {
+                const angle = (serviceIndex / serviceCount) * Math.PI * 2;
+                servicePositions[serviceName] = { x: Math.cos(angle) * 100, z: Math.sin(angle) * 100, y: 0 };
+                serviceIndex++;
+            });
+            
+            data.nodes.forEach(node => {
+                const basePos = servicePositions[node.service] || { x: 0, y: 0, z: 0 };
+                let size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : node.type === 'api_endpoint' ? 4 : 2;
+                
+                const position = {
+                    x: basePos.x + (Math.random() - 0.5) * 30,
+                    y: (node.type === 'service' ? 50 : 10 + Math.random() * 40),
+                    z: basePos.z + (Math.random() - 0.5) * 30
+                };
+                
+                createNode(node, position, size);
+            });
+            
+            data.connections.forEach(conn => createConnection(conn));
+        }
+        
+        function createNode(node, position, size, colorOverride = null) {
+            const geometry = node.type === 'service' ? new THREE.BoxGeometry(size, size, size) : new THREE.SphereGeometry(size, 16, 16);
+            const color = colorOverride || NODE_COLORS[node.type] || 0xffffff;
+            const material = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2, transparent: true, opacity: 0.9 });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(position.x, position.y, position.z);
+            mesh.userData.nodeId = node.id;
+            mesh.userData.nodeType = node.type;
+            
+            scene.add(mesh);
+            nodeObjects[node.id] = { mesh, position, type: node.type, originalColor: color };
+        }
+        
+        function createConnection(conn, useHierarchicalStyle = false) {
+            const sourceNode = nodeObjects[conn.source_id];
+            const targetNode = nodeObjects[conn.target_id];
+            if (!sourceNode || !targetNode) return;
+            
+            const start = new THREE.Vector3(sourceNode.position.x, sourceNode.position.y, sourceNode.position.z);
+            const end = new THREE.Vector3(targetNode.position.x, targetNode.position.y, targetNode.position.z);
+            
+            let points;
+            let opacity = 0.4;
+            
+            // For hierarchical layout, use curved connections and fade long ones
+            if (currentLayout === 'hierarchical' || currentLayout === 'layered') {
+                const distance = start.distanceTo(end);
+                opacity = Math.max(0.1, 0.6 - distance * 0.002); // Fade long connections
+                
+                // Create curved path for cleaner look
+                const midY = (start.y + end.y) / 2;
+                const midX = (start.x + end.x) / 2;
+                const midZ = (start.z + end.z) / 2;
+                
+                // Curve outward slightly
+                const curveOffset = Math.min(distance * 0.1, 15);
+                
+                const curve = new THREE.QuadraticBezierCurve3(
+                    start,
+                    new THREE.Vector3(midX + curveOffset, midY, midZ),
+                    end
+                );
+                points = curve.getPoints(10);
+            } else {
+                points = [start, end];
+            }
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const color = CONNECTION_COLORS[conn.status] || CONNECTION_COLORS.active;
+            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+            
+            const line = new THREE.Line(geometry, material);
+            line.userData = { source: conn.source_id, target: conn.target_id, type: conn.type, status: conn.status };
+            
+            scene.add(line);
+            connectionObjects.push(line);
+        }
+        
+        function clearGraph() {
+            Object.values(nodeObjects).forEach(n => {
+                try {
+                    scene.remove(n.mesh);
+                    if (n.mesh && n.mesh.geometry) n.mesh.geometry.dispose();
+                    const mat = n.mesh ? n.mesh.material : null;
+                    if (Array.isArray(mat)) mat.forEach(m => m && m.dispose && m.dispose());
+                    else if (mat && mat.dispose) mat.dispose();
+                } catch (e) {
+                    // ignore
+                }
+            });
+            connectionObjects.forEach(c => {
+                try {
+                    scene.remove(c);
+                    if (c && c.geometry) c.geometry.dispose();
+                    const mat = c ? c.material : null;
+                    if (Array.isArray(mat)) mat.forEach(m => m && m.dispose && m.dispose());
+                    else if (mat && mat.dispose) mat.dispose();
+                } catch (e) {
+                    // ignore
+                }
+            });
+            nodeObjects = {};
+            connectionObjects = [];
+            try {
+                if (renderer && renderer.renderLists) renderer.renderLists.dispose();
+            } catch (e) {
+                // ignore
+            }
+        }
+        
+        async function filterByPipeline() {
+            const pipeline = document.getElementById('pipeline-filter').value;
+            if (!pipeline || !analysisId) { if (graphData) renderGraph(graphData); return; }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/filter`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pipeline })
+                });
+                const filtered = await response.json();
+                clearGraph();
+                filtered.nodes.forEach((node, i) => {
+                    const angle = (i / filtered.nodes.length) * Math.PI * 2;
+                    createNode(node, { x: Math.cos(angle) * 50, y: 10 + Math.random() * 40, z: Math.sin(angle) * 50 }, 4);
+                });
+                filtered.connections.forEach(conn => createConnection(conn));
+            } catch (error) { console.error('Filter failed:', error); }
+        }
+        
+        async function filterByService() {
+            const service = document.getElementById('service-filter').value;
+            if (!service || !analysisId) { if (graphData) renderGraph(graphData); return; }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/filter`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service })
+                });
+                const filtered = await response.json();
+                clearGraph();
+                filtered.nodes.forEach((node, i) => {
+                    const angle = (i / filtered.nodes.length) * Math.PI * 2;
+                    createNode(node, { x: Math.cos(angle) * 40, y: 5 + Math.random() * 50, z: Math.sin(angle) * 40 }, node.type === 'file' ? 4 : 2);
+                });
+                filtered.connections.forEach(conn => createConnection(conn));
+            } catch (error) { console.error('Filter failed:', error); }
+        }
+        
+        async function filterByType(type) {
+            document.querySelectorAll('.toggle-row .toggle-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${type}`).classList.add('active');
+            
+            if (type === 'all' || !analysisId) { if (graphData) renderGraph(graphData); return; }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/by-type/${type}`);
+                const filtered = await response.json();
+                clearGraph();
+                filtered.nodes.forEach((node, i) => {
+                    const angle = (i / Math.max(filtered.nodes.length, 1)) * Math.PI * 2;
+                    const radius = 30 + (i % 5) * 15;
+                    createNode(node, { x: Math.cos(angle) * radius, y: 10 + Math.random() * 40, z: Math.sin(angle) * radius }, 3);
+                });
+                filtered.connections.forEach(conn => createConnection(conn));
+            } catch (error) { console.error('Filter failed:', error); }
+        }
+        
+        async function applyHeatMap() {
+            const category = document.getElementById('heat-map-select').value;
+            currentHeatMap = category;
+            
+            if (!category || !comparisonId) {
+                Object.values(nodeObjects).forEach(n => {
+                    n.mesh.material.color.setHex(n.originalColor);
+                    n.mesh.material.emissive.setHex(n.originalColor);
+                });
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/comparison/${comparisonId}/heat-map/${category}`);
+                const heatData = await response.json();
+                
+                heatData.data.forEach(h => {
+                    if (nodeObjects[h.node_id]) {
+                        const heat = h.heat_value;
+                        const r = Math.floor(heat * 255);
+                        const g = Math.floor((1 - heat) * 255);
+                        const color = (r << 16) | (g << 8) | 0;
+                        nodeObjects[h.node_id].mesh.material.color.setHex(color);
+                        nodeObjects[h.node_id].mesh.material.emissive.setHex(color);
+                        nodeObjects[h.node_id].mesh.material.emissiveIntensity = 0.3 + heat * 0.5;
+                    }
+                });
+            } catch (error) { console.error('Heat map failed:', error); }
+        }
+        
+        function searchNodes() {
+            const query = document.getElementById('search-input').value.toLowerCase();
+            const resultsDiv = document.getElementById('search-results');
+            if (!query || !graphData) { resultsDiv.innerHTML = ''; return; }
+            
+            const matches = graphData.nodes.filter(n => n.name.toLowerCase().includes(query) || n.file_path.toLowerCase().includes(query)).slice(0, 10);
+            resultsDiv.innerHTML = matches.map(n => `<div class="change-item" onclick="focusNode('${n.id}')" style="cursor:pointer">${n.name} <small>(${n.type})</small></div>`).join('');
+        }
+        
+        function focusNode(nodeId) {
+            const nodeObj = nodeObjects[nodeId];
+            if (!nodeObj) return;
+            camera.position.set(nodeObj.position.x + 50, nodeObj.position.y + 30, nodeObj.position.z + 50);
+            controls.target.set(nodeObj.position.x, nodeObj.position.y, nodeObj.position.z);
+            selectNode(nodeId);
+            document.getElementById('search-results').innerHTML = '';
+            document.getElementById('search-input').value = '';
+        }
+        
+        async function traceExecution(startNode) {
+            if (!analysisId) return;
+            showLoading('Tracing execution...');
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/trace`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start_node: startNode, max_depth: 10 })
+                });
+                const trace = await response.json();
+                
+                Object.values(nodeObjects).forEach(n => { n.mesh.material.opacity = 0.1; n.mesh.material.emissiveIntensity = 0.1; });
+                
+                if (nodeObjects[startNode]) {
+                    nodeObjects[startNode].mesh.material.opacity = 1;
+                    nodeObjects[startNode].mesh.material.color.setHex(0xFFFF00);
+                    nodeObjects[startNode].mesh.scale.setScalar(2);
+                }
+                
+                trace.nodes.forEach(n => {
+                    if (nodeObjects[n.id] && n.id !== startNode) {
+                        nodeObjects[n.id].mesh.material.opacity = 1;
+                        nodeObjects[n.id].mesh.material.color.setHex(0x00FF00);
+                    }
+                });
+                
+                connectionObjects.forEach(conn => {
+                    const isInTrace = trace.connections.some(tc => tc.source_id === conn.userData.source && tc.target_id === conn.userData.target);
+                    conn.material.opacity = isInTrace ? 1 : 0.02;
+                    if (isInTrace) conn.material.color.setHex(0x00FF00);
+                });
+                
+            } catch (error) { console.error('Trace failed:', error); }
+            finally { hideLoading(); }
+        }
+        
+        // ============ ISOLATED PIPELINE VIEW ============
+        let currentPipelineData = null;
+        let pipelineAnimationId = null;
+        
+        async function traceFullPipeline(startNode) {
+            if (!analysisId) return;
+            showLoading('Tracing full pipeline...');
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/full-pipeline`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start_node: startNode, max_depth: 50, direction: 'both', show_functions: true })
+                });
+                const pipeline = await response.json();
+                currentPipelineData = pipeline;
+                currentPipelineData.startNode = startNode;
+                
+                // Dim all nodes
+                Object.values(nodeObjects).forEach(n => { n.mesh.material.opacity = 0.05; });
+                connectionObjects.forEach(c => { c.material.opacity = 0.02; });
+                
+                const levelColors = [0xFFFF00, 0x00FF00, 0x00FFFF, 0x0088FF, 0x8800FF, 0xFF00FF, 0xFF8800];
+                
+                pipeline.levels.forEach((level, i) => {
+                    const color = levelColors[i % levelColors.length];
+                    level.nodes.forEach(nodeId => {
+                        if (nodeObjects[nodeId]) {
+                            nodeObjects[nodeId].mesh.material.opacity = 1;
+                            nodeObjects[nodeId].mesh.material.color.setHex(color);
+                            nodeObjects[nodeId].mesh.material.emissiveIntensity = 0.5;
+                        }
+                    });
+                });
+                
+                pipeline.connections.forEach(conn => {
+                    const connObj = connectionObjects.find(c => c.userData.source === conn.source_id && c.userData.target === conn.target_id);
+                    if (connObj) {
+                        connObj.material.opacity = 1;
+                        connObj.material.color.setHex(levelColors[conn.level % levelColors.length]);
+                    }
+                });
+                
+                // Show pipeline panel
+                showPipelinePanel(pipeline, startNode);
+                
+            } catch (error) { console.error('Pipeline trace failed:', error); }
+            finally { hideLoading(); }
+        }
+        
+        function showPipelinePanel(pipeline, startNode) {
+            const panel = document.getElementById('pipeline-view-panel');
+            const startNodeData = graphData.nodes.find(n => n.id === startNode);
+            
+            document.getElementById('pipeline-start-node').innerHTML = `
+                <strong>Start:</strong> ${startNodeData?.name || startNode} 
+                <span style="color:#a0a0a0;">(${startNodeData?.type || 'unknown'})</span>
+            `;
+            
+            // Stats
+            const allNodes = pipeline.levels.flatMap(l => l.nodes);
+            const uniqueFiles = new Set(pipeline.nodes?.filter(n => n.type === 'file').map(n => n.id) || []);
+            const uniqueFuncs = new Set(pipeline.nodes?.filter(n => n.type === 'function' || n.type === 'api_endpoint').map(n => n.id) || []);
+            
+            document.getElementById('pipe-steps').textContent = pipeline.total_levels;
+            document.getElementById('pipe-files').textContent = uniqueFiles.size || pipeline.total_nodes;
+            document.getElementById('pipe-funcs').textContent = uniqueFuncs.size || 0;
+            
+            // Build flow visualization
+            const flowContainer = document.getElementById('pipeline-flow');
+            const levelColors = ['#fff', 'rgba(255,255,255,0.7)', 'rgba(255,255,255,0.6)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.3)'];
+            
+            let flowHtml = '<div style="display:flex;flex-direction:column;gap:8px;">';
+            
+            pipeline.levels.forEach((level, i) => {
+                const color = levelColors[i % levelColors.length];
+                const nodeNames = level.nodes.slice(0, 5).map(nodeId => {
+                    const node = graphData.nodes.find(n => n.id === nodeId);
+                    return node ? node.name : nodeId.split(':').pop();
+                });
+                const moreCount = level.nodes.length > 5 ? ` +${level.nodes.length - 5} more` : '';
+                
+                flowHtml += `
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <div style="width:30px;height:30px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:0.8em;">${i}</div>
+                        <div style="flex:1;background:rgba(255,255,255,0.05);padding:8px;border-radius:4px;border-left:3px solid ${color};">
+                            <div style="font-size:0.8em;color:#a0a0a0;">Level ${i} (${level.nodes.length} nodes)</div>
+                            <div style="font-size:0.85em;">${nodeNames.join(', ')}${moreCount}</div>
+                        </div>
+                    </div>
+                `;
+                
+                if (i < pipeline.levels.length - 1) {
+                    flowHtml += `<div style="margin-left:15px;border-left:2px dashed ${color};height:15px;"></div>`;
+                }
+            });
+            
+            flowHtml += '</div>';
+            flowContainer.innerHTML = flowHtml;
+            
+            // Build sequence list
+            const sequenceContainer = document.getElementById('pipeline-sequence');
+            let seqHtml = '<ol style="margin:0;padding-left:20px;">';
+            
+            pipeline.levels.forEach((level, i) => {
+                level.nodes.forEach(nodeId => {
+                    const node = graphData.nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        const typeIcon = node.type === 'api_endpoint' ? '🔌' : node.type === 'function' ? '⚡' : node.type === 'file' ? '📄' : node.type === 'service' ? '📦' : '•';
+                        seqHtml += `<li style="margin:2px 0;cursor:pointer;" onclick="focusNode('${nodeId}')">${typeIcon} <strong>${node.name}</strong> <span style="color:rgba(255,255,255,0.3);font-size:0.8em;">${node.file_path || ''}</span></li>`;
+                    }
+                });
+            });
+            
+            seqHtml += '</ol>';
+            sequenceContainer.innerHTML = seqHtml;
+            
+            panel.style.display = 'block';
+        }
+        
+        function closePipelineView() {
+            document.getElementById('pipeline-view-panel').style.display = 'none';
+            if (pipelineAnimationId) {
+                cancelAnimationFrame(pipelineAnimationId);
+                pipelineAnimationId = null;
+            }
+            // Restore all nodes
+            if (graphData) renderGraphWithLayout(graphData, currentLayout);
+        }
+        
+        function animatePipeline() {
+            if (!currentPipelineData) return;
+            
+            // Reset all to dim
+            Object.values(nodeObjects).forEach(n => { 
+                n.mesh.material.opacity = 0.05;
+                n.mesh.material.emissiveIntensity = 0.1;
+            });
+            connectionObjects.forEach(c => { c.material.opacity = 0.02; });
+            
+            const levelColors = [0xFFFF00, 0x00FF00, 0x00FFFF, 0x0088FF, 0x8800FF, 0xFF00FF, 0xFF8800];
+            let currentLevel = 0;
+            
+            function animateLevel() {
+                if (currentLevel >= currentPipelineData.levels.length) {
+                    // Animation complete, restart after delay
+                    setTimeout(() => {
+                        currentLevel = 0;
+                        Object.values(nodeObjects).forEach(n => { n.mesh.material.opacity = 0.05; });
+                        connectionObjects.forEach(c => { c.material.opacity = 0.02; });
+                        pipelineAnimationId = requestAnimationFrame(animateLevel);
+                    }, 2000);
+                    return;
+                }
+                
+                const level = currentPipelineData.levels[currentLevel];
+                const color = levelColors[currentLevel % levelColors.length];
+                
+                // Highlight nodes at this level
+                level.nodes.forEach(nodeId => {
+                    if (nodeObjects[nodeId]) {
+                        nodeObjects[nodeId].mesh.material.opacity = 1;
+                        nodeObjects[nodeId].mesh.material.color.setHex(color);
+                        nodeObjects[nodeId].mesh.material.emissiveIntensity = 0.8;
+                        
+                        // Pulse effect
+                        const originalScale = nodeObjects[nodeId].mesh.scale.x;
+                        nodeObjects[nodeId].mesh.scale.setScalar(originalScale * 1.5);
+                        setTimeout(() => {
+                            if (nodeObjects[nodeId]) nodeObjects[nodeId].mesh.scale.setScalar(originalScale);
+                        }, 300);
+                    }
+                });
+                
+                // Highlight connections to this level
+                if (currentLevel > 0) {
+                    const prevNodes = new Set(currentPipelineData.levels[currentLevel - 1].nodes);
+                    connectionObjects.forEach(conn => {
+                        if (prevNodes.has(conn.userData.source) && level.nodes.includes(conn.userData.target)) {
+                            conn.material.opacity = 1;
+                            conn.material.color.setHex(color);
+                        }
+                    });
+                }
+                
+                currentLevel++;
+                setTimeout(() => {
+                    pipelineAnimationId = requestAnimationFrame(animateLevel);
+                }, 800);
+            }
+            
+            animateLevel();
+        }
+        
+        function isolatePipeline() {
+            if (!currentPipelineData || !graphData) return;
+            
+            // Get all nodes in the pipeline
+            const pipelineNodeIds = new Set(currentPipelineData.levels.flatMap(l => l.nodes));
+            
+            // Create filtered data with only pipeline nodes
+            const filteredData = {
+                ...graphData,
+                nodes: graphData.nodes.filter(n => pipelineNodeIds.has(n.id)),
+                connections: graphData.connections.filter(c => pipelineNodeIds.has(c.source_id) && pipelineNodeIds.has(c.target_id))
+            };
+            
+            // Re-render with only pipeline nodes in a linear layout
+            clearGraph();
+            
+            const levelColors = [0xFFFF00, 0x00FF00, 0x00FFFF, 0x0088FF, 0x8800FF, 0xFF00FF, 0xFF8800];
+            
+            currentPipelineData.levels.forEach((level, levelIndex) => {
+                const nodesInLevel = level.nodes.length;
+                level.nodes.forEach((nodeId, nodeIndex) => {
+                    const node = graphData.nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        const position = {
+                            x: (nodeIndex - nodesInLevel / 2) * 20,
+                            y: 80 - levelIndex * 25,
+                            z: 0
+                        };
+                        const size = node.type === 'service' ? 8 : node.type === 'file' ? 4 : node.type === 'api_endpoint' ? 5 : 3;
+                        createNode(node, position, size, levelColors[levelIndex % levelColors.length]);
+                    }
+                });
+            });
+            
+            filteredData.connections.forEach(conn => createConnection(conn));
+            
+            // Center camera
+            camera.position.set(0, 50, 150);
+            controls.target.set(0, 30, 0);
+        }
+        
+        async function exportPipelineForAI() {
+            if (!currentPipelineData || !graphData) {
+                alert('No pipeline to export');
+                return;
+            }
+            
+            const startNodeData = graphData.nodes.find(n => n.id === currentPipelineData.startNode);
+            
+            let exportText = `# Execution Pipeline Analysis
+
+## Starting Point
+- **Node:** ${startNodeData?.name || currentPipelineData.startNode}
+- **Type:** ${startNodeData?.type || 'unknown'}
+- **File:** ${startNodeData?.file_path || 'N/A'}
+
+## Pipeline Statistics
+- Total Levels: ${currentPipelineData.total_levels}
+- Total Nodes: ${currentPipelineData.total_nodes}
+- Total Connections: ${currentPipelineData.total_connections}
+
+## Execution Flow (Level by Level)
+`;
+            
+            currentPipelineData.levels.forEach((level, i) => {
+                exportText += `\n### Level ${i}${i === 0 ? ' (Entry Point)' : ''}\n`;
+                level.nodes.forEach(nodeId => {
+                    const node = graphData.nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        const typeIcon = node.type === 'api_endpoint' ? '🔌' : node.type === 'function' ? '⚡' : node.type === 'file' ? '📄' : '📦';
+                        exportText += `- ${typeIcon} **${node.name}** (${node.type}) - \`${node.file_path || 'N/A'}\`\n`;
+                    }
+                });
+            });
+            
+            exportText += `\n## Connection Chain\n`;
+            currentPipelineData.connections?.slice(0, 30).forEach(conn => {
+                exportText += `- ${conn.source_id.split(':').pop()} → ${conn.target_id.split(':').pop()}\n`;
+            });
+            
+            if (currentPipelineData.connections?.length > 30) {
+                exportText += `\n... and ${currentPipelineData.connections.length - 30} more connections\n`;
+            }
+            
+            await navigator.clipboard.writeText(exportText);
+            alert('Pipeline chain copied to clipboard! Paste into AI assistant for analysis.');
+        }
+        
+        function showFullPipeline() {
+            if (selectedNode) traceFullPipeline(selectedNode);
+            else alert('Click a node first to trace its pipeline');
+        }
+        
+        async function showBrokenConnections() {
+            if (!analysisId) return;
+            connectionObjects.forEach(conn => {
+                if (conn.userData.status === 'broken' || conn.userData.status === 'dead') {
+                    conn.material.color.setHex(0xFF0000);
+                    conn.material.opacity = 1;
+                } else {
+                    conn.material.opacity = 0.1;
+                }
+            });
+        }
+        
+        async function showEndpoints() {
+            if (!analysisId) return;
+            Object.values(nodeObjects).forEach(n => {
+                if (n.type === 'api_endpoint') {
+                    n.mesh.material.emissiveIntensity = 0.8;
+                    n.mesh.scale.setScalar(1.5);
+                    n.mesh.material.opacity = 1;
+                } else {
+                    n.mesh.material.opacity = 0.2;
+                }
+            });
+        }
+        
+        async function showFunctions() {
+            if (!analysisId) return;
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/functions`);
+                const data = await response.json();
+                
+                Object.values(nodeObjects).forEach(n => { n.mesh.material.opacity = 0.1; });
+                
+                data.functions.forEach(f => {
+                    if (nodeObjects[f.id]) {
+                        nodeObjects[f.id].mesh.material.opacity = 1;
+                        nodeObjects[f.id].mesh.material.emissiveIntensity = 0.5;
+                    }
+                });
+            } catch (error) { console.error('Show functions failed:', error); }
+        }
+        
+        function resetView() {
+            connectionsVisible = true;
+            document.getElementById('toggle-connections-btn').textContent = 'Hide Lines';
+            if (comparisonData && graphData) renderComparisonGraph(graphData, comparisonData);
+            else if (graphData) renderGraph(graphData);
+            
+            document.getElementById('pipeline-filter').value = '';
+            document.getElementById('service-filter').value = '';
+            document.getElementById('heat-map-select').value = '';
+            document.getElementById('layout-mode').value = 'circular';
+            document.getElementById('depth-filter').value = 'all';
+            document.getElementById('info-panel').style.display = 'none';
+            camera.position.set(0, 100, 200);
+            controls.target.set(0, 0, 0);
+        }
+        
+        // ============ CONNECTION VISIBILITY ============
+        function toggleConnections() {
+            connectionsVisible = !connectionsVisible;
+            document.getElementById('toggle-connections-btn').textContent = connectionsVisible ? 'Hide Lines' : 'Show Lines';
+            
+            connectionObjects.forEach(conn => {
+                conn.visible = connectionsVisible;
+            });
+        }
+        
+        function showOnlyDirectConnections() {
+            if (!graphData || !selectedNode) {
+                alert('Click a node first to see its direct connections');
+                return;
+            }
+            
+            // Hide all connections first
+            connectionObjects.forEach(conn => {
+                conn.material.opacity = 0.03;
+            });
+            
+            // Show only connections to/from selected node
+            connectionObjects.forEach(conn => {
+                if (conn.userData.source === selectedNode || conn.userData.target === selectedNode) {
+                    conn.material.opacity = 0.8;
+                    conn.material.color.setHex(0x00FF00);
+                }
+            });
+            
+            // Dim non-connected nodes
+            Object.values(nodeObjects).forEach(n => {
+                const nodeId = n.mesh?.userData?.nodeId;
+                const isConnected = connectionObjects.some(c => 
+                    (c.userData.source === selectedNode && c.userData.target === nodeId) ||
+                    (c.userData.target === selectedNode && c.userData.source === nodeId) ||
+                    nodeId === selectedNode
+                );
+                n.mesh.material.opacity = isConnected ? 1 : 0.15;
+            });
+        }
+        
+        // ============ LAYOUT MODES ============
+        let currentLayout = 'circular';
+        
+        function changeLayout() {
+            currentLayout = document.getElementById('layout-mode').value;
+            if (graphData) {
+                renderGraphWithLayout(graphData, currentLayout);
+                
+                // Adjust camera for different layouts
+                if (currentLayout === 'hierarchical') {
+                    // Side view to see top-down hierarchy
+                    camera.position.set(0, 50, 250);
+                    controls.target.set(0, 40, 0);
+                } else if (currentLayout === 'layered') {
+                    camera.position.set(0, 50, 200);
+                    controls.target.set(0, 30, 0);
+                } else {
+                    camera.position.set(0, 100, 200);
+                    controls.target.set(0, 0, 0);
+                }
+            }
+        }
+        
+        function renderGraphWithLayout(data, layout) {
+            clearGraph();
+            
+            const nodes = data.nodes;
+            const services = Object.keys(data.services);
+            const serviceCount = services.length;
+            
+            // Calculate positions based on layout
+            const positions = {};
+            
+            if (layout === 'circular') {
+                // Services in a circle, nodes around their service
+                services.forEach((serviceName, i) => {
+                    const angle = (i / serviceCount) * Math.PI * 2;
+                    const baseX = Math.cos(angle) * 120;
+                    const baseZ = Math.sin(angle) * 120;
+                    
+                    const serviceNodes = nodes.filter(n => n.service === serviceName);
+                    serviceNodes.forEach((node, j) => {
+                        const subAngle = (j / serviceNodes.length) * Math.PI * 2;
+                        const radius = node.type === 'service' ? 0 : 20 + (node.type === 'file' ? 10 : 20);
+                        positions[node.id] = {
+                            x: baseX + Math.cos(subAngle) * radius,
+                            y: node.type === 'service' ? 60 : node.type === 'file' ? 30 : 10,
+                            z: baseZ + Math.sin(subAngle) * radius
+                        };
+                    });
+                });
+            } else if (layout === 'hierarchical') {
+                // Top-down: Services -> Files -> Functions (better spread)
+                const levels = { service: 100, file: 50, function: 0, class: 25, api_endpoint: -25 };
+                
+                // Group nodes by type first
+                const serviceNodes = nodes.filter(n => n.type === 'service');
+                const fileNodes = nodes.filter(n => n.type === 'file');
+                const funcNodes = nodes.filter(n => n.type === 'function' || n.type === 'class');
+                const apiNodes = nodes.filter(n => n.type === 'api_endpoint');
+                
+                // Position services at top
+                serviceNodes.forEach((node, i) => {
+                    positions[node.id] = {
+                        x: (i - serviceNodes.length / 2) * 40,
+                        y: levels.service,
+                        z: 0
+                    };
+                });
+                
+                // Position files below services, grouped by service
+                let fileX = -((fileNodes.length * 15) / 2);
+                fileNodes.forEach((node, i) => {
+                    positions[node.id] = {
+                        x: fileX + (i % 15) * 15,
+                        y: levels.file,
+                        z: Math.floor(i / 15) * 25
+                    };
+                });
+                
+                // Position functions below files
+                let funcX = -((funcNodes.length * 12) / 2);
+                funcNodes.forEach((node, i) => {
+                    positions[node.id] = {
+                        x: funcX + (i % 20) * 12,
+                        y: levels.function,
+                        z: Math.floor(i / 20) * 20
+                    };
+                });
+                
+                // Position API endpoints at bottom
+                apiNodes.forEach((node, i) => {
+                    positions[node.id] = {
+                        x: (i - apiNodes.length / 2) * 20,
+                        y: levels.api_endpoint,
+                        z: 0
+                    };
+                });
+            } else if (layout === 'layered') {
+                // Horizontal layers by type
+                const typeOrder = ['service', 'file', 'class', 'function', 'api_endpoint'];
+                typeOrder.forEach((type, layer) => {
+                    const typeNodes = nodes.filter(n => n.type === type);
+                    typeNodes.forEach((node, i) => {
+                        positions[node.id] = {
+                            x: (i % 20) * 15 - 150,
+                            y: 80 - layer * 25,
+                            z: Math.floor(i / 20) * 20 - 50
+                        };
+                    });
+                });
+            } else if (layout === 'clustered') {
+                // Group by service in 3D clusters
+                services.forEach((serviceName, si) => {
+                    const clusterX = (si % 5) * 80 - 160;
+                    const clusterZ = Math.floor(si / 5) * 80 - 80;
+                    
+                    const serviceNodes = nodes.filter(n => n.service === serviceName);
+                    serviceNodes.forEach((node, j) => {
+                        const phi = Math.acos(-1 + (2 * j) / serviceNodes.length);
+                        const theta = Math.sqrt(serviceNodes.length * Math.PI) * phi;
+                        const radius = node.type === 'service' ? 0 : 15 + j * 0.5;
+                        
+                        positions[node.id] = {
+                            x: clusterX + radius * Math.cos(theta) * Math.sin(phi),
+                            y: 30 + radius * Math.cos(phi),
+                            z: clusterZ + radius * Math.sin(theta) * Math.sin(phi)
+                        };
+                    });
+                });
+            } else if (layout === 'force') {
+                // Simple force-directed approximation
+                nodes.forEach((node, i) => {
+                    const angle = (i / nodes.length) * Math.PI * 2 * 3;
+                    const radius = 50 + (i / nodes.length) * 100;
+                    positions[node.id] = {
+                        x: Math.cos(angle) * radius,
+                        y: 20 + Math.sin(i * 0.5) * 30,
+                        z: Math.sin(angle) * radius
+                    };
+                });
+            }
+            
+            // Create nodes with calculated positions
+            nodes.forEach(node => {
+                const pos = positions[node.id] || { x: 0, y: 0, z: 0 };
+                const size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : node.type === 'api_endpoint' ? 4 : 2;
+                createNode(node, pos, size);
+            });
+            
+            data.connections.forEach(conn => createConnection(conn));
+        }
+        
+        function filterByDepth() {
+            const depth = document.getElementById('depth-filter').value;
+            if (!graphData) return;
+            
+            const filteredData = { ...graphData };
+            
+            if (depth === 'services') {
+                filteredData.nodes = graphData.nodes.filter(n => n.type === 'service');
+            } else if (depth === 'files') {
+                filteredData.nodes = graphData.nodes.filter(n => n.type === 'service' || n.type === 'file');
+            }
+            // 'all' and 'functions' show everything
+            
+            const nodeIds = new Set(filteredData.nodes.map(n => n.id));
+            filteredData.connections = graphData.connections.filter(c => nodeIds.has(c.source_id) && nodeIds.has(c.target_id));
+            
+            renderGraphWithLayout(filteredData, currentLayout);
+        }
+        
+        // ============ AI EXPORT ============
+        async function exportForAI() {
+            if (!analysisId || !graphData) {
+                alert('Analyze a codebase first');
+                return;
+            }
+            
+            showLoading('Generating AI-friendly export...');
+            
+            try {
+                // Build structured summary
+                const summary = {
+                    overview: {
+                        total_files: graphData.stats.total_files,
+                        total_services: graphData.stats.total_services,
+                        total_functions: graphData.stats.total_functions,
+                        total_endpoints: graphData.stats.total_endpoints,
+                        total_connections: graphData.stats.total_connections,
+                        broken_connections: graphData.stats.broken_connections,
+                        health_score: Math.round((1 - graphData.stats.broken_connections / Math.max(graphData.stats.total_connections, 1)) * 100)
+                    },
+                    services: {},
+                    critical_issues: [],
+                    dependency_tree: {}
+                };
+                
+                // Group by service
+                Object.keys(graphData.services).forEach(serviceName => {
+                    const serviceNodes = graphData.nodes.filter(n => n.service === serviceName);
+                    const files = serviceNodes.filter(n => n.type === 'file');
+                    const functions = serviceNodes.filter(n => n.type === 'function');
+                    const endpoints = serviceNodes.filter(n => n.type === 'api_endpoint');
+                    
+                    summary.services[serviceName] = {
+                        files: files.length,
+                        functions: functions.length,
+                        endpoints: endpoints.length,
+                        file_list: files.map(f => f.file_path),
+                        endpoint_list: endpoints.map(e => ({ name: e.name, file: e.file_path }))
+                    };
+                });
+                
+                // Find critical issues
+                const brokenConns = graphData.connections.filter(c => c.status === 'broken' || c.status === 'dead');
+                brokenConns.slice(0, 20).forEach(conn => {
+                    summary.critical_issues.push({
+                        type: 'broken_connection',
+                        from: conn.source_id,
+                        to: conn.target_id,
+                        suggestion: `Check if target "${conn.target_id}" exists or fix import`
+                    });
+                });
+                
+                // Build dependency tree for each service
+                Object.keys(graphData.services).forEach(serviceName => {
+                    const deps = new Set();
+                    graphData.connections.forEach(conn => {
+                        const sourceNode = graphData.nodes.find(n => n.id === conn.source_id);
+                        const targetNode = graphData.nodes.find(n => n.id === conn.target_id);
+                        if (sourceNode?.service === serviceName && targetNode?.service !== serviceName) {
+                            deps.add(targetNode?.service);
+                        }
+                    });
+                    summary.dependency_tree[serviceName] = Array.from(deps).filter(Boolean);
+                });
+                
+                // Create downloadable text
+                const exportText = `# Codebase Analysis for AI Agent
+
+## Overview
+- Files: ${summary.overview.total_files}
+- Services/Modules: ${summary.overview.total_services}
+- Functions: ${summary.overview.total_functions}
+- API Endpoints: ${summary.overview.total_endpoints}
+- Connections: ${summary.overview.total_connections}
+- Broken Connections: ${summary.overview.broken_connections}
+- Health Score: ${summary.overview.health_score}%
+
+## Services Structure
+${Object.entries(summary.services).map(([name, data]) => `
+### ${name}
+- Files: ${data.files}
+- Functions: ${data.functions}
+- Endpoints: ${data.endpoints}
+${data.endpoint_list.length > 0 ? `- API Endpoints:\n${data.endpoint_list.map(e => `  - ${e.name} (${e.file})`).join('\n')}` : ''}
+`).join('\n')}
+
+## Service Dependencies
+${Object.entries(summary.dependency_tree).map(([name, deps]) => `- ${name} → [${deps.join(', ') || 'none'}]`).join('\n')}
+
+## Critical Issues to Fix
+${summary.critical_issues.map((issue, i) => `${i+1}. ${issue.type}: ${issue.from} → ${issue.to}\n   Suggestion: ${issue.suggestion}`).join('\n\n')}
+
+## JSON Data (for programmatic use)
+\`\`\`json
+${JSON.stringify(summary, null, 2)}
+\`\`\`
+`;
+                
+                // Copy to clipboard
+                await navigator.clipboard.writeText(exportText);
+                
+                // Also show in a panel
+                const panel = document.getElementById('governance-panel');
+                const details = document.getElementById('governance-details');
+                details.innerHTML = `
+                    <div style="color:rgba(255,255,255,0.35);margin-bottom:10px;">✅ Copied to clipboard!</div>
+                    <h3>AI Export Summary</h3>
+                    <div class="stat"><span>Health Score</span><span class="stat-value ${summary.overview.health_score > 70 ? 'success' : 'warning'}">${summary.overview.health_score}%</span></div>
+                    <div class="stat"><span>Services</span><span class="stat-value">${summary.overview.total_services}</span></div>
+                    <div class="stat"><span>Critical Issues</span><span class="stat-value danger">${summary.critical_issues.length}</span></div>
+                    <h4>Service Dependencies</h4>
+                    ${Object.entries(summary.dependency_tree).map(([name, deps]) => `<div style="font-size:0.8em;margin:2px 0;"><strong>${name}</strong> → ${deps.join(', ') || 'none'}</div>`).join('')}
+                `;
+                panel.style.display = 'block';
+                
+                hideLoading();
+                alert('AI-friendly export copied to clipboard! Paste it into your AI assistant.');
+                
+            } catch (error) {
+                hideLoading();
+                console.error('Export failed:', error);
+                alert('Export failed: ' + error.message);
+            }
+        }
+        
+        function showLoading(text) {
+            document.getElementById('loading-text').textContent = text || 'Loading...';
+            document.getElementById('loading').style.display = 'flex';
+        }
+        
+        function hideLoading() { document.getElementById('loading').style.display = 'none'; }
+        
+        // Timeline Playback Functions
+        async function initPlayback() {
+            if (!comparisonData || !comparisonData.projects) return;
+            
+            projectSnapshots = [];
+            showLoading('Loading project snapshots...');
+            
+            try {
+                for (const project of comparisonData.projects) {
+                    const aid = (project.analysis_id || '').trim();
+                    if (!aid) {
+                        continue;
+                    }
+
+                    projectSnapshots.push({
+                        label: project.label,
+                        path: project.path,
+                        stats: project.stats,
+                        analysisId: aid
+                    });
+                }
+                
+                document.getElementById('timeline-slider').max = projectSnapshots.length - 1;
+                document.getElementById('playback-panel').style.display = 'block';
+                updatePlaybackUI();
+                
+            } catch (error) {
+                console.error('Failed to load snapshots:', error);
+                alert('Failed to load project snapshots');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function updatePlaybackUI() {
+            if (projectSnapshots.length === 0) return;
+            
+            const snapshot = projectSnapshots[currentSnapshotIndex];
+            document.getElementById('current-version').textContent = `${currentSnapshotIndex + 1}/${projectSnapshots.length}`;
+            document.getElementById('playback-label').textContent = snapshot.label;
+            document.getElementById('timeline-slider').value = currentSnapshotIndex;
+            
+            const stats = snapshot.stats || {};
+            document.getElementById('playback-stats').innerHTML = `
+                Files: ${stats.total_files || 0} | 
+                Connections: ${stats.total_connections || 0} | 
+                Broken: ${stats.broken_connections || 0}
+            `;
+            
+            // Highlight current timeline item
+            document.querySelectorAll('.timeline-item').forEach((item, i) => {
+                item.classList.toggle('current', i === currentSnapshotIndex);
+            });
+        }
+        
+        function renderSnapshot(index) {
+            if (index < 0 || index >= projectSnapshots.length) return;
+            
+            currentSnapshotIndex = index;
+            const snapshot = projectSnapshots[index];
+            updatePlaybackUI();
+
+            const analysisIdToLoad = snapshot.analysisId;
+            if (!analysisIdToLoad) return;
+
+            if (currentSnapshotDataAnalysisId !== analysisIdToLoad || !currentSnapshotData) {
+                const myToken = ++snapshotRenderToken;
+                showLoading('Loading snapshot...');
+
+                currentSnapshotData = null;
+                currentSnapshotDataAnalysisId = null;
+
+                fetch(`/api/analysis/${analysisIdToLoad}`)
+                    .then(async (r) => {
+                        if (!r.ok) {
+                            const err = await r.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Failed to load snapshot');
+                        }
+                        return r.json();
+                    })
+                    .then((data) => {
+                        if (myToken !== snapshotRenderToken) return;
+
+                        currentSnapshotData = data;
+                        currentSnapshotDataAnalysisId = analysisIdToLoad;
+
+                        analysisId = analysisIdToLoad;
+                        graphData = data;
+                        nodeById = Object.fromEntries((data.nodes || []).map(n => [n.id, n]));
+
+                        hideLoading();
+                        renderSnapshot(index);
+                    })
+                    .catch((e) => {
+                        if (myToken !== snapshotRenderToken) return;
+                        hideLoading();
+                        console.error('Failed to load snapshot:', e);
+                        alert('Failed to load snapshot: ' + e.message);
+                    });
+                return;
+            }
+
+            clearGraph();
+            
+            // Build change map from comparison data
+            const changeMap = {};
+            if (comparisonData && comparisonData.file_changes) {
+                comparisonData.file_changes.forEach(fc => {
+                    changeMap[fc.file_path] = fc;
+                });
+            }
+
+            const data = currentSnapshotData;
+            if (!data) return;
+            const servicePositions = {};
+            const serviceCount = Math.max(1, Object.keys(data.services || {}).length);
+            let serviceIndex = 0;
+            
+            Object.keys(data.services || {}).forEach(serviceName => {
+                const angle = (serviceIndex / serviceCount) * Math.PI * 2;
+                servicePositions[serviceName] = { x: Math.cos(angle) * 100, z: Math.sin(angle) * 100, y: 0 };
+                serviceIndex++;
+            });
+            
+            (data.nodes || []).forEach(node => {
+                const basePos = servicePositions[node.service] || { x: 0, y: 0, z: 0 };
+                const change = changeMap[node.file_path];
+                
+                let color = NODE_COLORS[node.type] || 0xffffff;
+                let size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : 2;
+                
+                // Color based on timeline position
+                if (index === 0) {
+                    // First snapshot - show as baseline (blue)
+                    color = 0x3498db;
+                } else if (index === projectSnapshots.length - 1) {
+                    // Latest snapshot - show changes
+                    if (change) {
+                        color = CHANGE_COLORS[change.change_type] || color;
+                        if (change.change_type === 'modified') size *= 1.2;
+                        if (change.change_type === 'added') size *= 1.3;
+                    }
+                } else {
+                    // Middle snapshot - transitional (purple)
+                    color = 0x9B59B6;
+                    if (change && change.change_type === 'modified') {
+                        color = 0xF39C12;
+                    }
+                }
+                
+                const position = {
+                    x: basePos.x + (Math.random() - 0.5) * 30,
+                    y: (node.type === 'service' ? 50 : 10 + Math.random() * 40),
+                    z: basePos.z + (Math.random() - 0.5) * 30
+                };
+                
+                createNode(node, position, size, color);
+            });
+            
+            (data.connections || []).forEach(conn => createConnection(conn));
+            
+            updatePlaybackUI();
+            updateStats(data.stats);
+        }
+        
+        function playbackToggle() {
+            if (projectSnapshots.length === 0) {
+                initPlayback();
+                return;
+            }
+            
+            isPlaying = !isPlaying;
+            document.getElementById('btn-play').textContent = isPlaying ? '⏸ Pause' : '▶️ Play';
+            document.getElementById('btn-play').className = isPlaying ? 'btn-small btn-warning' : 'btn-small btn-success';
+            
+            if (isPlaying) {
+                playbackInterval = setInterval(() => {
+                    if (currentSnapshotIndex < projectSnapshots.length - 1) {
+                        renderSnapshot(currentSnapshotIndex + 1);
+                    } else {
+                        // Loop back to start
+                        renderSnapshot(0);
+                    }
+                }, playbackSpeed);
+            } else {
+                clearInterval(playbackInterval);
+            }
+        }
+        
+        function playbackPrev() {
+            if (currentSnapshotIndex > 0) {
+                renderSnapshot(currentSnapshotIndex - 1);
+            }
+        }
+        
+        function playbackNext() {
+            if (currentSnapshotIndex < projectSnapshots.length - 1) {
+                renderSnapshot(currentSnapshotIndex + 1);
+            }
+        }
+        
+        function sliderChange() {
+            const value = parseInt(document.getElementById('timeline-slider').value);
+            renderSnapshot(value);
+        }
+        
+        function setPlaybackSpeed() {
+            playbackSpeed = parseInt(document.getElementById('playback-speed').value);
+            if (isPlaying) {
+                clearInterval(playbackInterval);
+                playbackInterval = setInterval(() => {
+                    if (currentSnapshotIndex < projectSnapshots.length - 1) {
+                        renderSnapshot(currentSnapshotIndex + 1);
+                    } else {
+                        renderSnapshot(0);
+                    }
+                }, playbackSpeed);
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            Object.values(nodeObjects).forEach(n => { if (n.type === 'api_endpoint') n.mesh.rotation.y += 0.01; });
+            renderer.render(scene, camera);
+            updateMinimap();
+        }
+        
+        // ============ MINIMAP ============
+        let minimapCtx = null;
+        
+        function initMinimap() {
+            const canvas = document.getElementById('minimap-canvas');
+            if (canvas) {
+                minimapCtx = canvas.getContext('2d');
+                canvas.addEventListener('click', onMinimapClick);
+            }
+        }
+        
+        function updateMinimap() {
+            if (!minimapCtx || Object.keys(nodeObjects).length === 0) return;
+            
+            const canvas = minimapCtx.canvas;
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Clear
+            minimapCtx.fillStyle = '#32312E';
+            minimapCtx.fillRect(0, 0, width, height);
+            
+            // Find bounds
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            Object.values(nodeObjects).forEach(n => {
+                minX = Math.min(minX, n.position.x);
+                maxX = Math.max(maxX, n.position.x);
+                minZ = Math.min(minZ, n.position.z);
+                maxZ = Math.max(maxZ, n.position.z);
+            });
+            
+            const padding = 20;
+            const scaleX = (width - padding * 2) / Math.max(maxX - minX, 1);
+            const scaleZ = (height - padding * 2) / Math.max(maxZ - minZ, 1);
+            const scale = Math.min(scaleX, scaleZ);
+            
+            // Draw nodes
+            Object.values(nodeObjects).forEach(n => {
+                const x = padding + (n.position.x - minX) * scale;
+                const z = padding + (n.position.z - minZ) * scale;
+                const size = n.type === 'service' ? 4 : n.type === 'file' ? 2 : 1;
+                
+                minimapCtx.fillStyle = '#' + n.originalColor.toString(16).padStart(6, '0');
+                minimapCtx.beginPath();
+                minimapCtx.arc(x, z, size, 0, Math.PI * 2);
+                minimapCtx.fill();
+            });
+            
+            // Draw camera position indicator
+            const camX = padding + (camera.position.x - minX) * scale;
+            const camZ = padding + (camera.position.z - minZ) * scale;
+            
+            minimapCtx.strokeStyle = '#fff';
+            minimapCtx.lineWidth = 2;
+            minimapCtx.beginPath();
+            minimapCtx.arc(camX, camZ, 8, 0, Math.PI * 2);
+            minimapCtx.stroke();
+            
+            // Draw view direction
+            const dirX = camX - controls.target.x * scale * 0.1;
+            const dirZ = camZ - controls.target.z * scale * 0.1;
+            minimapCtx.beginPath();
+            minimapCtx.moveTo(camX, camZ);
+            minimapCtx.lineTo(camX + (controls.target.x - camera.position.x) * 0.05, camZ + (controls.target.z - camera.position.z) * 0.05);
+            minimapCtx.stroke();
+            
+            // Update info
+            document.getElementById('minimap-info').textContent = `Nodes: ${Object.keys(nodeObjects).length} | Cam: (${Math.round(camera.position.x)}, ${Math.round(camera.position.z)})`;
+        }
+        
+        function onMinimapClick(e) {
+            if (Object.keys(nodeObjects).length === 0) return;
+            
+            const canvas = e.target;
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickZ = e.clientY - rect.top;
+            
+            // Find bounds
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            Object.values(nodeObjects).forEach(n => {
+                minX = Math.min(minX, n.position.x);
+                maxX = Math.max(maxX, n.position.x);
+                minZ = Math.min(minZ, n.position.z);
+                maxZ = Math.max(maxZ, n.position.z);
+            });
+            
+            const padding = 20;
+            const scaleX = (canvas.width - padding * 2) / Math.max(maxX - minX, 1);
+            const scaleZ = (canvas.height - padding * 2) / Math.max(maxZ - minZ, 1);
+            const scale = Math.min(scaleX, scaleZ);
+            
+            // Convert click to world coords
+            const worldX = (clickX - padding) / scale + minX;
+            const worldZ = (clickZ - padding) / scale + minZ;
+            
+            // Move camera
+            camera.position.x = worldX;
+            camera.position.z = worldZ;
+            controls.target.set(worldX, 0, worldZ);
+        }
+        
+        // Initialize minimap after DOM ready
+        setTimeout(initMinimap, 100);
+        
+        // ============ GOVERNANCE FUNCTIONS ============
+        let governanceData = null;
+        
+        async function runGovernance() {
+            if (!analysisId) {
+                alert('Please analyze a codebase first');
+                return;
+            }
+            
+            showLoading('Running reachability analysis...');
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/governance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ drift_threshold: 20.0 })
+                });
+                
+                if (!response.ok) throw new Error('Governance analysis failed');
+                
+                const data = await response.json();
+                governanceData = data;
+                
+                // Update summary panel
+                document.getElementById('governance-summary').style.display = 'block';
+                document.getElementById('gov-ci-status').textContent = data.ci_pass ? '✅ PASS' : '❌ FAIL';
+                document.getElementById('gov-ci-status').className = 'stat-value ' + (data.ci_pass ? 'success' : 'danger');
+                document.getElementById('gov-live').textContent = data.live_count;
+                document.getElementById('gov-invalid').textContent = data.invalid_count;
+                document.getElementById('gov-reachability').textContent = data.governance.summary.reachability_score + '%';
+                document.getElementById('gov-violations').textContent = data.governance.violation_counts.critical + data.governance.violation_counts.high;
+                
+                // Color nodes by governance status
+                applyGovernanceColors(data);
+                
+                // Auto-show governance panel with violations
+                showViolations();
+                
+                hideLoading();
+            } catch (error) {
+                hideLoading();
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        function applyGovernanceColors(data) {
+            const nodeStatus = data.node_status || {};
+            const STATUS_COLORS = {
+                'live': 0x2ECC71,
+                'dormant': 0xF39C12,
+                'experimental': 0x9B59B6,
+                'deprecated': 0x95A5A6,
+                'invalid': 0xE74C3C,
+                'unknown': 0x666666
+            };
+            
+            Object.entries(nodeObjects).forEach(([id, obj]) => {
+                const status = nodeStatus[id] || 'unknown';
+                const color = STATUS_COLORS[status] || 0x666666;
+                obj.mesh.material.color.setHex(color);
+                obj.mesh.material.emissive.setHex(color);
+                obj.mesh.material.emissiveIntensity = status === 'live' ? 0.3 : 0.1;
+            });
+        }
+        
+        async function showLiveNodes() {
+            if (!analysisId || !governanceData) {
+                alert('Run governance analysis first');
+                return;
+            }
+            
+            // Fetch live nodes from API
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/governance/live-nodes`);
+                const data = await response.json();
+                const liveIds = new Set(data.live_nodes.map(n => n.id));
+                
+                Object.entries(nodeObjects).forEach(([id, obj]) => {
+                    if (liveIds.has(id)) {
+                        obj.mesh.visible = true;
+                        obj.mesh.material.opacity = 1;
+                        obj.mesh.material.color.setHex(0x2ECC71);
+                    } else {
+                        obj.mesh.material.opacity = 0.1;
+                    }
+                });
+                
+                connectionObjects.forEach(line => {
+                    const sourceVisible = liveIds.has(line.userData.source);
+                    const targetVisible = liveIds.has(line.userData.target);
+                    line.material.opacity = (sourceVisible && targetVisible) ? 0.8 : 0.05;
+                });
+            } catch (error) {
+                console.error('Failed to show live nodes:', error);
+            }
+        }
+        
+        async function showInvalidNodes() {
+            if (!analysisId || !governanceData) {
+                alert('Run governance analysis first');
+                return;
+            }
+            
+            // Fetch invalid nodes from API
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/governance/invalid-nodes`);
+                const data = await response.json();
+                const invalidIds = new Set(data.invalid_nodes.map(n => n.id));
+                
+                Object.entries(nodeObjects).forEach(([id, obj]) => {
+                    if (invalidIds.has(id)) {
+                        obj.mesh.visible = true;
+                        obj.mesh.material.opacity = 1;
+                        obj.mesh.material.color.setHex(0xE74C3C);
+                        obj.mesh.material.emissive.setHex(0xE74C3C);
+                    } else {
+                        obj.mesh.material.opacity = 0.1;
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to show invalid nodes:', error);
+            }
+        }
+        
+        function showViolations() {
+            if (!governanceData) {
+                alert('Run governance analysis first');
+                return;
+            }
+            
+            const violations = governanceData.governance?.violations || [];
+            const violationCounts = governanceData.governance?.violation_counts || {critical: 0, high: 0, medium: 0, low: 0};
+            const panel = document.getElementById('governance-panel');
+            const details = document.getElementById('governance-details');
+            
+            let html = `
+                <div class="stat"><span>Total Violations</span><span class="stat-value warning">${violations.length}</span></div>
+                <div class="stat"><span>Critical/High</span><span class="stat-value danger">${violationCounts.critical + violationCounts.high}</span></div>
+                <div class="stat"><span>Medium</span><span class="stat-value">${violationCounts.medium}</span></div>
+                <div class="stat"><span>Live Nodes</span><span class="stat-value success">${governanceData.live_count || 0}</span></div>
+                <div class="stat"><span>Invalid Nodes</span><span class="stat-value danger">${governanceData.invalid_count || 0}</span></div>
+                <h3>Violations</h3>
+            `;
+            
+            violations.slice(0, 50).forEach(v => {
+                const severityClass = v.severity === 'critical' || v.severity === 'high' ? 'danger' : 
+                                     v.severity === 'medium' ? 'warning' : '';
+                html += `
+                    <div class="change-item ${v.type === 'unreachable_code' ? 'removed' : 'modified'}">
+                        <span class="badge ${v.severity}">${v.severity.toUpperCase()}</span>
+                        <strong>${v.type.replace(/_/g, ' ')}</strong><br>
+                        <small>${v.message}</small><br>
+                        <small style="color:rgba(255,255,255,0.3)">${v.file_path}</small>
+                    </div>
+                `;
+            });
+            
+            if (violations.length > 50) {
+                html += `<div style="color:#a0a0a0;text-align:center;padding:10px;">...and ${violations.length - 50} more</div>`;
+            }
+            
+            details.innerHTML = html;
+            panel.style.display = 'block';
+        }
+        
+        // ============ GRAPH JANITOR AGENT ============
+        let agentData = null;
+        
+        function openAgentPanel() {
+            if (!analysisId) {
+                alert('Please analyze a codebase first');
+                return;
+            }
+            document.getElementById('agent-panel').style.display = 'block';
+        }
+        
+        async function runAgentScan() {
+            if (!analysisId) {
+                alert('Please analyze a codebase first');
+                return;
+            }
+            
+            showLoading('🤖 Graph Janitor Agent scanning...');
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/agent/scan`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        max_proposals: 15,
+                        min_utility: 0,
+                        max_risk: 8
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Agent scan failed');
+                
+                agentData = await response.json();
+                updateAgentUI(agentData);
+                
+            } catch (error) {
+                console.error('Agent scan failed:', error);
+                alert('Agent scan failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        function updateAgentUI(data) {
+            // Update health status
+            const health = data.health_indicators;
+            document.getElementById('agent-health-emoji').textContent = health.status_emoji;
+            document.getElementById('agent-health-status').textContent = health.status.replace('_', ' ');
+            document.getElementById('agent-health-score').textContent = health.health_score + '%';
+            
+            // Update metrics
+            document.getElementById('agent-metrics').style.display = 'block';
+            document.getElementById('agent-reachability').textContent = data.metrics.reachability_score + '%';
+            document.getElementById('agent-unreachable').textContent = data.metrics.unreachable_nodes;
+            document.getElementById('agent-isolated').textContent = data.metrics.isolated_nodes;
+            document.getElementById('agent-orphans').textContent = data.metrics.orphan_endpoints;
+            
+            // Update memory stats
+            document.getElementById('agent-memory').style.display = 'block';
+            document.getElementById('agent-epoch').textContent = health.current_epoch || 1;
+            document.getElementById('agent-fpr').textContent = (health.false_positive_rate || 0) + '%';
+            document.getElementById('agent-sandbox').textContent = 'ON (Safe)';
+            document.getElementById('agent-sandbox').className = 'stat-value warning';
+            
+            // Update recommendations
+            document.getElementById('agent-recommendations').style.display = 'block';
+            const recsList = document.getElementById('agent-recs-list');
+            recsList.innerHTML = health.recommendations.map(rec => 
+                `<div style="padding:4px 0;border-bottom:1px solid #333;">• ${rec}</div>`
+            ).join('');
+            
+            // Update proposals
+            document.getElementById('agent-proposals').style.display = 'block';
+            document.getElementById('proposal-count').textContent = data.proposals.length;
+            
+            const proposalsList = document.getElementById('proposals-list');
+            proposalsList.innerHTML = data.proposals.map((p, i) => `
+                <div class="proposal-item" style="background:#262321;padding:10px;border-radius:4px;margin-bottom:8px;border-left:3px solid ${getRiskColor(p.risk)};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                        <strong style="color:rgba(255,255,255,0.3);">${p.proposal}</strong>
+                        <span style="font-size:0.8em;color:${getRiskColor(p.risk)};">Risk: ${p.risk.toFixed(1)}</span>
+                    </div>
+                    <div style="font-size:0.85em;color:#a0a0a0;margin-bottom:5px;">${p.reason}</div>
+                    <div style="font-size:0.8em;color:rgba(255,255,255,0.35);margin-bottom:8px;">${p.expected_gain}</div>
+                    <div style="font-size:0.75em;color:rgba(255,255,255,0.3);margin-bottom:8px;word-break:break-all;">${p.root}</div>
+                    <div style="display:flex;gap:5px;">
+                        <button class="btn-small btn-success" onclick="approveProposal('${p.action?.action_id || ''}', ${i})">✓ Approve</button>
+                        <button class="btn-small btn-danger" onclick="rejectProposal('${p.action?.action_id || ''}', ${i})">✗ Reject</button>
+                        <button class="btn-small btn-secondary" onclick="previewProposal('${p.action?.action_id || ''}')">👁 Preview</button>
+                        <button class="btn-small btn-secondary" onclick="focusNode('${p.root}')">🎯 Focus</button>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Highlight affected nodes in the graph
+            highlightAgentFindings(data);
+        }
+        
+        function getRiskColor(risk) {
+            if (risk <= 2) return 'rgba(255,255,255,0.35)';
+            if (risk <= 5) return 'rgba(255,255,255,0.35)';
+            return 'rgba(255,255,255,0.4)';
+        }
+        
+        function highlightAgentFindings(data) {
+            if (!graphData) return;
+            
+            // Dim all nodes first
+            Object.values(nodeObjects).forEach(n => {
+                n.mesh.material.opacity = 0.3;
+            });
+            
+            // Highlight nodes in proposals
+            data.proposals.forEach(p => {
+                const nodeId = p.root;
+                if (nodeObjects[nodeId]) {
+                    nodeObjects[nodeId].mesh.material.opacity = 1;
+                    nodeObjects[nodeId].mesh.material.emissiveIntensity = 0.6;
+                    
+                    // Color by proposal type
+                    if (p.proposal.includes('DEAD')) {
+                        nodeObjects[nodeId].mesh.material.color.setHex(0xe74c3c);
+                    } else if (p.proposal.includes('DORMANT')) {
+                        nodeObjects[nodeId].mesh.material.color.setHex(0xf39c12);
+                    } else if (p.proposal.includes('ISOLATE')) {
+                        nodeObjects[nodeId].mesh.material.color.setHex(0x9b59b6);
+                    } else if (p.proposal.includes('ORPHAN')) {
+                        nodeObjects[nodeId].mesh.material.color.setHex(0x3498db);
+                    }
+                }
+            });
+        }
+        
+        async function approveProposal(actionId, index) {
+            if (!actionId) {
+                alert('No action ID for this proposal');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/agent/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_id: actionId })
+                });
+                
+                if (!response.ok) throw new Error('Approval failed');
+                
+                // Update UI
+                const proposalItems = document.querySelectorAll('.proposal-item');
+                if (proposalItems[index]) {
+                    proposalItems[index].style.borderLeftColor = 'rgba(255,255,255,0.35)';
+                    proposalItems[index].querySelector('.btn-success').textContent = '✓ Approved';
+                    proposalItems[index].querySelector('.btn-success').disabled = true;
+                }
+                
+            } catch (error) {
+                alert('Approval failed: ' + error.message);
+            }
+        }
+        
+        async function rejectProposal(actionId, index) {
+            if (!actionId) {
+                alert('No action ID for this proposal');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/agent/reject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action_id: actionId })
+                });
+                
+                if (!response.ok) throw new Error('Rejection failed');
+                
+                // Remove from UI
+                const proposalItems = document.querySelectorAll('.proposal-item');
+                if (proposalItems[index]) {
+                    proposalItems[index].style.opacity = '0.3';
+                    proposalItems[index].style.borderLeftColor = 'rgba(255,255,255,0.4)';
+                }
+                
+            } catch (error) {
+                alert('Rejection failed: ' + error.message);
+            }
+        }
+        
+        async function previewProposal(actionId) {
+            if (!actionId) {
+                alert('No action ID for this proposal');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/agent/preview/${actionId}`);
+                if (!response.ok) throw new Error('Preview failed');
+                
+                const patch = await response.json();
+                
+                alert(`Action Preview:\n\nType: ${patch.type}\nTarget: ${patch.target}\nFiles affected: ${patch.files_affected.join(', ') || 'None'}\n\nDiffs:\n${patch.diffs.map(d => `- ${d.operation}: ${d.description}`).join('\n') || 'No changes'}`);
+                
+            } catch (error) {
+                alert('Preview failed: ' + error.message);
+            }
+        }
+        
+        async function executeApprovedActions() {
+            if (!analysisId) return;
+            
+            const confirmed = confirm('Execute all approved actions?\n\nThis will apply the changes to your codebase.');
+            if (!confirmed) return;
+            
+            showLoading('Executing approved actions...');
+            
+            try {
+                const response = await fetch(`/api/analysis/${analysisId}/agent/execute`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) throw new Error('Execution failed');
+                
+                const result = await response.json();
+                
+                alert(`Execution complete!\n\nExecuted: ${result.executed}\nFailed: ${result.failed}\n\n${result.details.map(d => `✓ ${d.type}`).join('\n')}`);
+                
+                // Re-scan after execution
+                await runAgentScan();
+                
+            } catch (error) {
+                alert('Execution failed: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // Testimonial toggle function
+        function toggleTestimonial() {
+            const panel = document.getElementById('testimonial-panel');
+            panel.classList.toggle('show');
+        }
+        
+        // Add hover functionality for testimonial badge
+        document.addEventListener('DOMContentLoaded', function() {
+            const badge = document.getElementById('testimonial-badge');
+            const panel = document.getElementById('testimonial-panel');
+            
+            // Show on hover
+            badge.addEventListener('mouseenter', function() {
+                panel.classList.add('show');
+            });
+            
+            // Hide when mouse leaves both badge and panel
+            let hideTimeout;
+            
+            badge.addEventListener('mouseleave', function() {
+                hideTimeout = setTimeout(function() {
+                    if (!panel.matches(':hover')) {
+                        panel.classList.remove('show');
+                    }
+                }, 300);
+            });
+            
+            panel.addEventListener('mouseenter', function() {
+                clearTimeout(hideTimeout);
+            });
+            
+            panel.addEventListener('mouseleave', function() {
+                panel.classList.remove('show');
+            });
+        });
+        
+        init();
+    </script>
+</body>
+</html>

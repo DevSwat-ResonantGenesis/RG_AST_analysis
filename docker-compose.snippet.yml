@@ -1,0 +1,28 @@
+# Add this service block to docker-compose.unified.yml
+# Replace the old code_visualizer_service block
+
+  rg_ast_analysis:
+    build:
+      context: /home/deploy/RG_AST_analysis
+      dockerfile: Dockerfile
+    container_name: rg_ast_analysis
+    env_file:
+      - ./.env.production
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CODE_VISUALIZER_DATABASE_URL: ${CODE_VISUALIZER_DATABASE_URL}
+      AST_ANALYSIS_GATEWAY_SECRET: ${CODE_VISUALIZER_GATEWAY_SECRET:-}
+      REDIS_URL: redis://shared_redis:6379/0
+      LLM_SERVICE_URL: http://llm_service:8000
+      MEMORY_SERVICE_URL: http://memory_service:8000
+      BILLING_SERVICE_URL: http://billing_service:8000
+      STORAGE_SERVICE_URL: http://storage_service:8000/api/storage
+      AUTH_FRONTEND_URL: ${AUTH_FRONTEND_URL:-}
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
