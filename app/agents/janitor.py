@@ -129,95 +129,54 @@ class GraphJanitorAgent:
     
     def scan(self) -> AgentReport:
         """
-        Execute full scan and generate proposals
-        This is the main entry point for the agent
+        Execute full scan and generate proposals.
+        Works with or without memory — when memory is None,
+        skips dedup/epoch/persistence (stateless mode).
         """
         start_time = datetime.now()
-        
-        # Step 0: Start new epoch in memory
-        initial_metrics = {
-            "total_nodes": len(self.gal.nodes),
-            "reachable": sum(1 for m in self.gal.metadata.values() if m.reachable)
-        }
-        self.current_epoch = self.memory.start_epoch(self.analysis_id, initial_metrics)
-        
+
         # Step 1: Gather metrics
         unreachable = self.gal.scan_unreachable()
         orphan_endpoints = self.gal.find_orphan_endpoints()
-        
+
         total_nodes = len(self.gal.nodes)
         reachable_count = sum(1 for m in self.gal.metadata.values() if m.reachable)
         unreachable_count = total_nodes - reachable_count
         reachability_score = reachable_count / total_nodes if total_nodes > 0 else 0
-        
+
         # Count isolated nodes (no connections at all)
         connected_nodes = set()
         for conn in self.gal.connections:
             connected_nodes.add(conn['source_id'])
             connected_nodes.add(conn['target_id'])
         isolated_count = total_nodes - len(connected_nodes)
-        
-        # Get rejected nodes from memory - avoid re-proposing
-        rejected_nodes = self.memory.get_rejected_nodes(lookback_epochs=10)
-        
+
         # Step 2: Identify candidates for action
         proposals = []
-        
-        # Analyze unreachable nodes
         for node_info in unreachable:
-            # Skip if recently rejected
-            if node_info['id'] in rejected_nodes:
-                continue
-            
-            # Skip if duplicate proposal
-            if self.memory.is_duplicate_proposal(node_info['id'], "TAG_DEAD"):
-                continue
-            
             proposal = self._analyze_unreachable_node(node_info)
             if proposal and proposal.utility >= self.min_utility_threshold:
                 proposals.append(proposal)
-        
-        # Analyze orphan endpoints
+
         for endpoint in orphan_endpoints:
-            if endpoint['id'] in rejected_nodes:
-                continue
-            
             proposal = self._analyze_orphan_endpoint(endpoint)
             if proposal and proposal.utility >= self.min_utility_threshold:
                 proposals.append(proposal)
-        
-        # Step 3: Rank by utility
+
+        # Step 3: Rank by utility, take top N
         proposals.sort(key=lambda p: p.utility, reverse=True)
-        
-        # Step 4: Take top N
         top_proposals = proposals[:self.max_proposals]
-        
-        # Step 5: Record proposals in memory
-        for proposal in top_proposals:
-            self.memory.record_proposal(proposal.to_dict(), self.current_epoch, self.analysis_id)
-        
+
         # Calculate health indicators
         health = self._calculate_health_indicators(
             reachability_score, isolated_count, len(orphan_endpoints), total_nodes
         )
-        
-        # Add memory stats to health
-        health['false_positive_rate'] = round(self.memory.calculate_false_positive_rate() * 100, 1)
-        health['current_epoch'] = self.current_epoch
-        
-        # Record metrics for longitudinal tracking
-        self.memory.record_metrics(self.analysis_id, self.current_epoch, {
-            'reachability_score': reachability_score * 100,
-            'unreachable_nodes': unreachable_count,
-            'isolated_nodes': isolated_count,
-            'orphan_endpoints': len(orphan_endpoints),
-            'total_nodes': total_nodes,
-            'health_score': health['health_score']
-        })
-        
+        health['false_positive_rate'] = 0.0
+        health['current_epoch'] = self.current_epoch or 0
+
         end_time = datetime.now()
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
-        
+
         report = AgentReport(
             timestamp=start_time,
             scan_duration_ms=duration_ms,
@@ -230,17 +189,171 @@ class GraphJanitorAgent:
             proposals=top_proposals,
             health_indicators=health
         )
-        
+
         self.last_scan = report
         self.proposal_history.extend(top_proposals)
-        
-        # End epoch with stats
-        self.memory.end_epoch(self.current_epoch, {
-            'reachability_score': reachability_score * 100
-        }, {
-            'generated': len(top_proposals)
-        })
-        
+        return report
+
+    async def async_scan(self, memory: 'PostgresAgentMemory') -> AgentReport:
+        """
+        Full scan WITH persistent memory — dedup, epoch tracking, learning.
+        Uses the async PostgresAgentMemory for all persistence.
+        """
+        import uuid as _uuid
+        start_time = datetime.now()
+
+        # Step 0: Start epoch
+        epoch_id = f"epoch:{self.analysis_id}:{start_time.isoformat()}"
+        initial_metrics = {
+            "total_nodes": len(self.gal.nodes),
+            "reachable": sum(1 for m in self.gal.metadata.values() if m.reachable)
+        }
+        await memory.store("epoch", epoch_id, json.dumps({
+            "status": "running", "started": start_time.isoformat(),
+            "analysis_id": self.analysis_id, "initial_metrics": initial_metrics
+        }))
+        self.current_epoch = epoch_id
+
+        # Step 1: Gather metrics
+        unreachable = self.gal.scan_unreachable()
+        orphan_endpoints = self.gal.find_orphan_endpoints()
+
+        total_nodes = len(self.gal.nodes)
+        reachable_count = sum(1 for m in self.gal.metadata.values() if m.reachable)
+        unreachable_count = total_nodes - reachable_count
+        reachability_score = reachable_count / total_nodes if total_nodes > 0 else 0
+
+        connected_nodes = set()
+        for conn in self.gal.connections:
+            connected_nodes.add(conn['source_id'])
+            connected_nodes.add(conn['target_id'])
+        isolated_count = total_nodes - len(connected_nodes)
+
+        # Step 2: Get rejected nodes from memory for dedup
+        rejected_nodes = set()
+        try:
+            rejected_proposals = await memory.get_proposals_by_status("rejected", limit=500)
+            rejected_nodes = {p.get('target_node', '') for p in rejected_proposals}
+        except Exception:
+            pass
+
+        # Get existing pending proposals for dedup
+        existing_proposals = set()
+        try:
+            pending = await memory.get_proposals_by_status("pending", limit=500)
+            existing_proposals = {p.get('target_node', '') for p in pending}
+        except Exception:
+            pass
+
+        # Step 3: Generate proposals with dedup
+        proposals = []
+        for node_info in unreachable:
+            nid = node_info['id']
+            if nid in rejected_nodes:
+                continue
+            if nid in existing_proposals:
+                continue
+            proposal = self._analyze_unreachable_node(node_info)
+            if proposal and proposal.utility >= self.min_utility_threshold:
+                proposals.append(proposal)
+
+        for endpoint in orphan_endpoints:
+            eid = endpoint['id']
+            if eid in rejected_nodes:
+                continue
+            if eid in existing_proposals:
+                continue
+            proposal = self._analyze_orphan_endpoint(endpoint)
+            if proposal and proposal.utility >= self.min_utility_threshold:
+                proposals.append(proposal)
+
+        proposals.sort(key=lambda p: p.utility, reverse=True)
+        top_proposals = proposals[:self.max_proposals]
+
+        # Step 4: Persist proposals to DB
+        for proposal in top_proposals:
+            pid = f"proposal:{self.analysis_id}:{_uuid.uuid4().hex[:12]}"
+            try:
+                await memory.store_proposal(pid, {
+                    "action_type": proposal.proposal_type,
+                    "target_node": proposal.root_node,
+                    "status": "pending",
+                    "risk": proposal.risk,
+                    "utility": proposal.utility,
+                    "reason": proposal.reason,
+                    "expected_gain": proposal.expected_gain,
+                    "epoch": epoch_id,
+                    "analysis_id": self.analysis_id,
+                })
+            except Exception:
+                pass
+
+        # Calculate health
+        health = self._calculate_health_indicators(
+            reachability_score, isolated_count, len(orphan_endpoints), total_nodes
+        )
+
+        # False positive rate from memory
+        fp_rate = 0.0
+        try:
+            stats = await memory.get_stats()
+            total_p = stats.get('total_proposals', 0)
+            rejected_p = len(rejected_nodes)
+            fp_rate = (rejected_p / total_p * 100) if total_p > 0 else 0.0
+        except Exception:
+            pass
+        health['false_positive_rate'] = round(fp_rate, 1)
+        health['current_epoch'] = epoch_id
+
+        # Step 5: Record metrics snapshot
+        try:
+            await memory.store("metrics", f"scan:{self.analysis_id}:{start_time.isoformat()}", json.dumps({
+                'reachability_score': round(reachability_score * 100, 2),
+                'unreachable_nodes': unreachable_count,
+                'isolated_nodes': isolated_count,
+                'orphan_endpoints': len(orphan_endpoints),
+                'total_nodes': total_nodes,
+                'health_score': health['health_score'],
+                'proposals_generated': len(top_proposals),
+                'timestamp': start_time.isoformat(),
+            }))
+        except Exception:
+            pass
+
+        end_time = datetime.now()
+        duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+        # End epoch
+        try:
+            await memory.store("epoch", epoch_id, json.dumps({
+                "status": "completed",
+                "started": start_time.isoformat(),
+                "ended": end_time.isoformat(),
+                "duration_ms": duration_ms,
+                "analysis_id": self.analysis_id,
+                "final_metrics": {
+                    "reachability_score": round(reachability_score * 100, 2),
+                    "proposals_generated": len(top_proposals),
+                },
+            }))
+        except Exception:
+            pass
+
+        report = AgentReport(
+            timestamp=start_time,
+            scan_duration_ms=duration_ms,
+            total_nodes=total_nodes,
+            reachable_nodes=reachable_count,
+            unreachable_nodes=unreachable_count,
+            reachability_score=reachability_score,
+            isolated_nodes=isolated_count,
+            orphan_endpoints=len(orphan_endpoints),
+            proposals=top_proposals,
+            health_indicators=health
+        )
+
+        self.last_scan = report
+        self.proposal_history.extend(top_proposals)
         return report
     
     def _analyze_unreachable_node(self, node_info: Dict) -> Optional[AgentProposal]:

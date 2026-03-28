@@ -26,6 +26,8 @@ from .analyzer import CodebaseAnalyzer, NodeType, analyze_codebase
 from .comparison_analyzer import MultiProjectComparator
 from .governance import GovernanceEngine
 from .startup import init_database_connections, close_database_connections
+from .agents.janitor import GraphJanitorAgent
+from . import startup as _startup_mod
 from .db import async_session_maker, SavedAnalysis, init_db
 
 logger = logging.getLogger(__name__)
@@ -1559,130 +1561,48 @@ async def api_governance_invalid_nodes(analysis_id: str):
 
 @app.post("/api/analysis/{analysis_id}/agent/scan")
 async def api_agent_scan(analysis_id: str, payload: Dict[str, Any] = Body(...)):
-    """Compatibility endpoint for legacy Graph Janitor UI.
+    """Full Graph Janitor Agent scan with PostgreSQL memory for learning.
 
-    Produces governance-grounded health/proposal data in the shape expected by
-    the existing frontend agent panel.
+    Uses GraphJanitorAgent.async_scan() when memory is available (dedup,
+    epoch tracking, proposal persistence). Falls back to stateless scan()
+    if the DB is not initialised.
     """
     await _ensure_analysis_loaded(analysis_id)
     analysis = _get_analysis_or_404(analysis_id)
-    nodes_list = analysis.get("nodes") or []
-    nodes = {n["id"]: n for n in nodes_list if isinstance(n, dict) and n.get("id")}
-    connections = analysis.get("connections") or []
 
-    try:
-        drift_threshold = float((payload or {}).get("drift_threshold", 20.0))
-    except (TypeError, ValueError):
-        drift_threshold = 20.0
     try:
         max_proposals = int((payload or {}).get("max_proposals", 15) or 15)
     except (TypeError, ValueError):
         max_proposals = 15
 
-    engine = GovernanceEngine(drift_threshold=drift_threshold)
+    # Build graph data dict expected by GAL / Janitor
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+
+    agent = GraphJanitorAgent(
+        graph_data=graph_data,
+        config={"max_proposals": max_proposals},
+        analysis_id=analysis_id,
+    )
+
+    # Use async_scan with memory if DB is available; else stateless scan
+    memory = _startup_mod.agent_memory
     try:
-        report = await asyncio.to_thread(engine.analyze, nodes, connections, "")
+        if memory and memory.pool:
+            report = await agent.async_scan(memory)
+            agent_label = "Graph Janitor Agent (learning)"
+        else:
+            report = await asyncio.to_thread(agent.scan)
+            agent_label = "Graph Janitor Agent"
     except Exception as exc:
         logger.exception("Agent scan failed for analysis_id=%s", analysis_id)
         raise HTTPException(status_code=500, detail=f"Graph Janitor scan failed: {str(exc)[:300]}")
 
-    total_nodes = len(nodes)
-    live_nodes = int(getattr(report, "live_nodes", 0) or 0)
-    unreachable_nodes = max(total_nodes - live_nodes, 0)
-
-    connected_nodes: set[str] = set()
-    edge_counts: Dict[str, int] = {}
-    for conn in connections:
-        if not isinstance(conn, dict):
-            continue
-        src = conn.get("source_id")
-        tgt = conn.get("target_id")
-        if isinstance(src, str) and src:
-            connected_nodes.add(src)
-            edge_counts[src] = edge_counts.get(src, 0) + 1
-        if isinstance(tgt, str) and tgt:
-            connected_nodes.add(tgt)
-            edge_counts[tgt] = edge_counts.get(tgt, 0) + 1
-
-    isolated_nodes = max(total_nodes - len(connected_nodes), 0)
-    orphan_endpoints = 0
-    for node in nodes_list:
-        if not isinstance(node, dict):
-            continue
-        if node.get("type") != "endpoint":
-            continue
-        node_id = node.get("id")
-        if isinstance(node_id, str) and edge_counts.get(node_id, 0) == 0:
-            orphan_endpoints += 1
-
-    reachability_score = float(getattr(report, "reachability_score", 0.0) or 0.0)
-    drift_score = float(getattr(report, "drift_score", 0.0) or 0.0)
-    health_score = int(round((reachability_score * 0.7) + ((100.0 - drift_score) * 0.3)))
-    health_score = max(0, min(100, health_score))
-
-    if health_score >= 80:
-        status = "healthy"
-        status_emoji = "🟢"
-    elif health_score >= 60:
-        status = "warning"
-        status_emoji = "🟡"
-    else:
-        status = "critical"
-        status_emoji = "🔴"
-
-    recommendations: List[str] = []
-    if unreachable_nodes > 0:
-        recommendations.append("Review unreachable nodes and add justifications for valid dormant code.")
-    if orphan_endpoints > 0:
-        recommendations.append("Investigate orphan endpoints and reconnect or remove dead routes.")
-    if drift_score > drift_threshold:
-        recommendations.append("Architecture drift exceeds threshold; prioritize forbidden dependency cleanup.")
-    if not recommendations:
-        recommendations.append("Graph health is stable. Continue periodic governance scans.")
-
-    severity_risk = {"critical": 8.5, "high": 6.5, "medium": 4.0, "low": 2.0}
-    proposals: List[Dict[str, Any]] = []
-    for idx, violation in enumerate((getattr(report, "violations", []) or [])[: max(1, max_proposals)]):
-        sev = str(getattr(violation, "severity", "medium") or "medium").lower()
-        node_id = str(getattr(violation, "node_id", "") or "")
-        msg = str(getattr(violation, "message", "Issue detected") or "Issue detected")
-        suggestion = str(getattr(violation, "suggestion", "Review node") or "Review node")
-
-        proposal_name = "TAG_DEAD"
-        if "forbidden" in str(getattr(violation, "type", "")).lower():
-            proposal_name = "ISOLATE_DEPENDENCY"
-        elif "isolated" in str(getattr(violation, "type", "")).lower():
-            proposal_name = "REVIEW_ORPHAN"
-
-        proposals.append(
-            {
-                "proposal": proposal_name,
-                "risk": float(severity_risk.get(sev, 4.0)),
-                "reason": msg,
-                "expected_gain": suggestion,
-                "root": node_id,
-                "action": {"action_id": f"{analysis_id}:{idx}:{proposal_name}"},
-            }
-        )
-
-    return {
-        "agent": "Graph Janitor Agent (compat)",
-        "health_indicators": {
-            "status": status,
-            "status_emoji": status_emoji,
-            "health_score": health_score,
-            "false_positive_rate": 0,
-            "current_epoch": 1,
-            "recommendations": recommendations,
-        },
-        "metrics": {
-            "reachability_score": round(reachability_score, 1),
-            "unreachable_nodes": unreachable_nodes,
-            "isolated_nodes": isolated_nodes,
-            "orphan_endpoints": orphan_endpoints,
-        },
-        "proposals": proposals,
-    }
+    result = report.to_dict()
+    result["agent"] = agent_label
+    return result
 
 
 @app.post("/api/upload")
