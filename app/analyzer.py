@@ -438,6 +438,7 @@ class JavaScriptAnalyzer:
 
 class CodebaseAnalyzer:
     """Main analyzer that processes entire codebase"""
+    MAX_FILES = 500
     
     def __init__(self, root_path: str):
         self.root_path = Path(root_path)
@@ -446,6 +447,8 @@ class CodebaseAnalyzer:
         self.services: Dict[str, List[str]] = {}
         self.pipelines: Dict[str, Pipeline] = {}
         self.file_contents: Dict[str, str] = {}
+        self._files_analyzed = 0
+        self._truncated = False
         
     def analyze(self) -> Dict[str, Any]:
         """Analyze entire codebase"""
@@ -513,6 +516,9 @@ class CodebaseAnalyzer:
             
             # Analyze Python files
             for py_file in service_path.rglob("*.py"):
+                if self._files_analyzed >= self.MAX_FILES:
+                    self._truncated = True
+                    break
                 if "__pycache__" in str(py_file) or "venv" in str(py_file):
                     continue
                 
@@ -536,6 +542,7 @@ class CodebaseAnalyzer:
                 )
                 self.connections.append(conn)
                 
+                self._files_analyzed += 1
                 try:
                     with open(py_file, 'r', encoding='utf-8') as f:
                         source = f.read()
@@ -553,6 +560,9 @@ class CodebaseAnalyzer:
 
             # Analyze JS/TS files (frontend and any JS utilities)
             for pattern in ("*.js", "*.jsx", "*.ts", "*.tsx"):
+                if self._files_analyzed >= self.MAX_FILES:
+                    self._truncated = True
+                    break
                 for js_file in service_path.rglob(pattern):
                     p = str(js_file)
                     if (
@@ -567,9 +577,13 @@ class CodebaseAnalyzer:
                     if "__pycache__" in p or "venv" in p:
                         continue
 
+                    if self._files_analyzed >= self.MAX_FILES:
+                        self._truncated = True
+                        break
                     rel_path = str(js_file.relative_to(self.root_path))
                     if rel_path not in self.services[service_name]:
                         self.services[service_name].append(rel_path)
+                    self._files_analyzed += 1
 
                     file_node_id = f"{service_name}:{rel_path}"
                     file_node = CodeNode(
@@ -608,6 +622,9 @@ class CodebaseAnalyzer:
             # Analyze additional languages (Go, Rust, Java, C/C++, Ruby, PHP, etc.)
             _extra_exts = set(LANG_ANALYZER_MAP.keys())
             for code_file in service_path.rglob("*"):
+                if self._files_analyzed >= self.MAX_FILES:
+                    self._truncated = True
+                    break
                 ext = code_file.suffix.lower()
                 if ext not in _extra_exts:
                     continue
@@ -619,6 +636,7 @@ class CodebaseAnalyzer:
                 if rel_path in self.services.get(service_name, []):
                     continue
                 self.services[service_name].append(rel_path)
+                self._files_analyzed += 1
 
                 lang = LANG_NAME_MAP.get(ext, ext.lstrip("."))
                 file_node_id = f"{service_name}:{rel_path}"
@@ -915,6 +933,8 @@ class CodebaseAnalyzer:
             "pipelines": {name: p.to_dict() for name, p in self.pipelines.items()},
             "stats": {
                 "total_files": sum(len(files) for files in self.services.values()),
+                "files_analyzed": self._files_analyzed,
+                "truncated": self._truncated,
                 "total_services": len(self.services),
                 "total_connections": len(self.connections),
                 "total_functions": len([n for n in self.nodes.values() if n.type == NodeType.FUNCTION]),
