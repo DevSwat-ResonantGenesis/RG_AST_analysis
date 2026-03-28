@@ -16,93 +16,8 @@ from typing import Dict, List, Set, Optional, Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-
-class NodeType(str, Enum):
-    SERVICE = "service"
-    FILE = "file"
-    FUNCTION = "function"
-    CLASS = "class"
-    API_ENDPOINT = "api_endpoint"
-    DATABASE = "database"
-    EXTERNAL_SERVICE = "external_service"
-
-
-class ConnectionType(str, Enum):
-    IMPORT = "import"
-    FUNCTION_CALL = "function_call"
-    API_CALL = "api_call"
-    DATABASE_QUERY = "database_query"
-    WEBSOCKET = "websocket"
-    HTTP_REQUEST = "http_request"
-    INHERITANCE = "inheritance"
-
-
-class ConnectionStatus(str, Enum):
-    ACTIVE = "active"
-    BROKEN = "broken"
-    DEAD = "dead"
-    UNUSED = "unused"
-    CIRCULAR = "circular"
-
-
-@dataclass
-class CodeNode:
-    id: str
-    name: str
-    type: NodeType
-    file_path: str
-    line_start: int = 0
-    line_end: int = 0
-    service: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "type": self.type.value,
-            "file_path": self.file_path,
-            "line_start": self.line_start,
-            "line_end": self.line_end,
-            "service": self.service,
-            "metadata": self.metadata
-        }
-
-
-@dataclass
-class CodeConnection:
-    source_id: str
-    target_id: str
-    type: ConnectionType
-    status: ConnectionStatus = ConnectionStatus.ACTIVE
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self):
-        return {
-            "source_id": self.source_id,
-            "target_id": self.target_id,
-            "type": self.type.value,
-            "status": self.status.value,
-            "metadata": self.metadata
-        }
-
-
-@dataclass
-class Pipeline:
-    name: str
-    description: str
-    nodes: List[str] = field(default_factory=list)
-    connections: List[str] = field(default_factory=list)
-    color: str = "#667eea"
-    
-    def to_dict(self):
-        return {
-            "name": self.name,
-            "description": self.description,
-            "nodes": self.nodes,
-            "connections": self.connections,
-            "color": self.color
-        }
+from .cv_types import NodeType, ConnectionType, ConnectionStatus, CodeNode, CodeConnection, Pipeline
+from .multi_lang_analyzer import LANG_ANALYZER_MAP, LANG_NAME_MAP, SKIP_DIRS as _ML_SKIP_DIRS
 
 
 class PythonAnalyzer(ast.NodeVisitor):
@@ -544,9 +459,20 @@ class CodebaseAnalyzer:
     
     def _discover_services(self):
         """Find all services/folders in the codebase"""
-        # First check if root has Python files directly
-        root_py_files = list(self.root_path.glob("*.py"))
-        if root_py_files:
+        # Code file extensions for multi-language support
+        _CODE_EXTS = (
+            "*.py", "*.js", "*.jsx", "*.ts", "*.tsx",
+            "*.go", "*.rs", "*.java", "*.kt", "*.kts",
+            "*.c", "*.cpp", "*.cc", "*.cxx", "*.h", "*.hpp",
+            "*.rb", "*.php", "*.swift", "*.scala", "*.dart",
+            "*.cs", "*.lua", "*.zig", "*.ex", "*.exs",
+            "*.r", "*.R", "*.jl", "*.v", "*.sol",
+        )
+        # First check if root has code files directly
+        root_code_files = []
+        for ext in _CODE_EXTS:
+            root_code_files.extend(self.root_path.glob(ext))
+        if root_code_files:
             self.services["root"] = []
             service_node = CodeNode(
                 id="service:root",
@@ -560,8 +486,11 @@ class CodebaseAnalyzer:
         # Then discover all subdirectories as potential services
         for item in self.root_path.iterdir():
             if item.is_dir() and not item.name.startswith('.') and item.name not in ['__pycache__', 'venv', 'node_modules', '.git', 'dist', 'build']:
-                # Check if folder has any code files
-                has_code = any(item.rglob("*.py")) or any(item.rglob("*.js")) or any(item.rglob("*.ts"))
+                # Check if folder has any code files (multi-language)
+                has_code = any(
+                    any(item.rglob(ext))
+                    for ext in _CODE_EXTS
+                )
                 if has_code:
                     self.services[item.name] = []
                     
@@ -675,7 +604,53 @@ class CodebaseAnalyzer:
                         self.connections.extend(connections)
                     except Exception as e:
                         file_node.metadata["error"] = str(e)
-    
+
+            # Analyze additional languages (Go, Rust, Java, C/C++, Ruby, PHP, etc.)
+            _extra_exts = set(LANG_ANALYZER_MAP.keys())
+            for code_file in service_path.rglob("*"):
+                ext = code_file.suffix.lower()
+                if ext not in _extra_exts:
+                    continue
+                p = str(code_file)
+                if any(f"/{d}/" in p for d in _ML_SKIP_DIRS):
+                    continue
+
+                rel_path = str(code_file.relative_to(self.root_path))
+                if rel_path in self.services.get(service_name, []):
+                    continue
+                self.services[service_name].append(rel_path)
+
+                lang = LANG_NAME_MAP.get(ext, ext.lstrip("."))
+                file_node_id = f"{service_name}:{rel_path}"
+                file_node = CodeNode(
+                    id=file_node_id, name=code_file.name, type=NodeType.FILE,
+                    file_path=rel_path, service=service_name,
+                    metadata={"language": lang},
+                )
+                self.nodes[file_node.id] = file_node
+
+                self.connections.append(CodeConnection(
+                    source_id=f"service:{service_name}",
+                    target_id=file_node.id,
+                    type=ConnectionType.IMPORT,
+                    metadata={"language": lang},
+                ))
+
+                try:
+                    with open(code_file, "r", encoding="utf-8", errors="ignore") as f:
+                        source = f.read()
+                        self.file_contents[rel_path] = source
+
+                    AnalyzerClass = LANG_ANALYZER_MAP[ext]
+                    analyzer = AnalyzerClass(rel_path, service_name)
+                    nodes, connections = analyzer.analyze(source)
+
+                    for node in nodes:
+                        self.nodes[node.id] = node
+                    self.connections.extend(connections)
+                except Exception as e:
+                    file_node.metadata["error"] = str(e)
+
     def _resolve_connections(self):
         """Resolve import connections to actual files and add file-to-function connections"""
         # Known external/stdlib packages that should NOT be resolved to internal files

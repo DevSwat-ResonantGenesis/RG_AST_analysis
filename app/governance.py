@@ -154,14 +154,15 @@ class GovernanceReport:
 class GovernanceEngine:
     """Main governance engine for code reachability and dependency enforcement."""
     
-    DEFAULT_ROOTS = [
-        AuthoritativeRoot("Gateway Entry", "gateway", "app/main.py", "app", "Main API gateway"),
-        AuthoritativeRoot("Auth Entry", "auth_service", "app/main.py", "app", "Auth service"),
-        AuthoritativeRoot("Chat Entry", "chat_service", "app/main.py", "app", "Chat service"),
-        AuthoritativeRoot("Memory Entry", "memory_service", "app/main.py", "app", "Memory service"),
-        AuthoritativeRoot("Agent Engine", "agent_engine_service", "app/main.py", "app", "Agent executor"),
-        AuthoritativeRoot("IDE Entry", "ide_service", "api/main.py", "app", "IDE service"),
+    # Entry-point filenames the engine recognises as authoritative roots.
+    _ENTRY_PATTERNS = [
+        "main.py", "app.py", "server.py", "wsgi.py", "asgi.py", "manage.py",
+        "__main__.py", "cli.py", "run.py", "start.py",
+        "index.js", "index.ts", "server.js", "server.ts", "app.js", "app.ts",
+        "main.js", "main.ts", "index.mjs", "index.cjs",
     ]
+
+    DEFAULT_ROOTS: list = []  # empty — auto-detected at analysis time
     
     DEFAULT_RULES = [
         DependencyRule("No service->gateway", r"(auth|chat|memory|agent)_service", r"gateway", False, Severity.HIGH, "Services should not depend on gateway"),
@@ -215,11 +216,37 @@ class GovernanceEngine:
     
     def _compute_reachability(self) -> Set[str]:
         live_nodes: Set[str] = set()
+
+        # 1. Try explicit roots first
         for root in self.roots:
             root_id = self._find_root_node(root)
             if root_id:
-                reachable = self._traverse_from_node(root_id)
-                live_nodes.update(reachable)
+                live_nodes.update(self._traverse_from_node(root_id))
+
+        # 2. Auto-detect entry points from actual project nodes
+        if not live_nodes:
+            entry_names = set(self._ENTRY_PATTERNS)
+            for node_id, node in self.nodes.items():
+                name = node.get('name', '') if isinstance(node, dict) else getattr(node, 'name', '')
+                fp = node.get('file_path', '') if isinstance(node, dict) else getattr(node, 'file_path', '')
+                ntype = node.get('type', '') if isinstance(node, dict) else getattr(node, 'type', '')
+                # Match entry-point filenames
+                if name in entry_names or any(fp.endswith(f"/{e}") or fp == e for e in entry_names):
+                    live_nodes.update(self._traverse_from_node(node_id))
+                # Service nodes are always roots
+                if str(ntype) in ('service', 'SERVICE'):
+                    live_nodes.update(self._traverse_from_node(node_id))
+
+        # 3. Also mark api_endpoint and middleware nodes as reachable (framework-registered)
+        for node_id, node in self.nodes.items():
+            ntype = node.get('type', '') if isinstance(node, dict) else getattr(node, 'type', '')
+            name = node.get('name', '') if isinstance(node, dict) else getattr(node, 'name', '')
+            if str(ntype) in ('api_endpoint', 'API_ENDPOINT'):
+                live_nodes.update(self._traverse_from_node(node_id))
+            # Middleware, decorators, and test functions are framework-registered
+            if any(k in str(name).lower() for k in ('middleware', 'startup', 'shutdown', 'lifespan', 'test_', 'conftest')):
+                live_nodes.add(node_id)
+
         return live_nodes
     
     def _find_root_node(self, root: AuthoritativeRoot) -> Optional[str]:
