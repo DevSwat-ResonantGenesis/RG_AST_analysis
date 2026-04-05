@@ -1,7 +1,7 @@
 """
 Multi-Language Code Analyzers — Full AST-level parsing for:
   Go, Rust, Java, Kotlin, C, C++, Ruby, PHP, Swift, Scala, Dart, C#,
-  Lua, Zig, Elixir, Julia, Solidity
+  Lua, Zig, Elixir, Julia, Solidity, R, V
 
 Each analyzer extracts:
   - Imports / dependencies
@@ -1362,6 +1362,493 @@ class SolidityAnalyzer:
 
 
 # ─────────────────────────────────────────────────────────────
+#  Julia Analyzer
+# ─────────────────────────────────────────────────────────────
+
+class JuliaAnalyzer:
+    """Full Julia source analyzer — using/import, modules, structs, functions, macros, HTTP."""
+
+    def __init__(self, file_path: str, service_name: str):
+        self.fp = file_path
+        self.svc = service_name
+        self.nodes: List[CodeNode] = []
+        self.connections: List[CodeConnection] = []
+
+    def analyze(self, source: str) -> Tuple[List[CodeNode], List[CodeConnection]]:
+        self._extract_imports(source)
+        self._extract_modules(source)
+        self._extract_types(source)
+        self._extract_functions(source)
+        self._extract_macros(source)
+        self._extract_http_handlers(source)
+        self._extract_http_calls(source)
+        return self.nodes, self.connections
+
+    # -- imports: using Pkg, import Pkg, using Pkg: sym1, sym2 --
+    _USING_PAT = re.compile(
+        r'^\s*(?:using|import)\s+([\w.]+(?:\s*:\s*[\w,\s.]+)?)', re.MULTILINE
+    )
+
+    def _extract_imports(self, src: str):
+        for m in self._USING_PAT.finditer(src):
+            mod = m.group(1).split(":")[0].strip()
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"module:{mod}",
+                type=ConnectionType.IMPORT,
+                metadata={"line": _line_of(src, m.start()), "language": "julia"},
+            ))
+
+    # -- modules --
+    _MODULE_PAT = re.compile(r'^\s*(?:bare)?module\s+(\w+)', re.MULTILINE)
+
+    def _extract_modules(self, src: str):
+        for m in self._MODULE_PAT.finditer(src):
+            name = m.group(1)
+            self.nodes.append(CodeNode(
+                id=f"{self.svc}:{self.fp}:{name}", name=name, type=NodeType.CLASS,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "julia", "kind": "module"},
+            ))
+
+    # -- structs, mutable structs, abstract types, primitive types --
+    _TYPE_PAT = re.compile(
+        r'^\s*(?:mutable\s+)?(?:struct|abstract\s+type|primitive\s+type)\s+(\w+)'
+        r'(?:\s*(?:<:|<:)\s*(\w+))?',
+        re.MULTILINE,
+    )
+
+    def _extract_types(self, src: str):
+        for m in self._TYPE_PAT.finditer(src):
+            name, parent = m.group(1), m.group(2)
+            is_mutable = "mutable" in m.group(0)
+            kind = "struct"
+            if "abstract" in m.group(0):
+                kind = "abstract_type"
+            elif "primitive" in m.group(0):
+                kind = "primitive_type"
+            nid = f"{self.svc}:{self.fp}:{name}"
+            self.nodes.append(CodeNode(
+                id=nid, name=name, type=NodeType.CLASS,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "julia", "kind": kind, "mutable": is_mutable, "supertype": parent or ""},
+            ))
+            if parent:
+                self.connections.append(CodeConnection(
+                    source_id=nid, target_id=f"class:{parent}",
+                    type=ConnectionType.INHERITANCE,
+                    metadata={"language": "julia"},
+                ))
+
+    # -- functions (regular, short-form, inner) --
+    _FUNC_PAT = re.compile(
+        r'^\s*(?:export\s+)?function\s+(\w+)(?:\{[^}]*\})?\s*\(([^)]*)\)',
+        re.MULTILINE,
+    )
+    _SHORT_FUNC_PAT = re.compile(
+        r'^(\w+)\s*\(([^)]*)\)\s*=\s*',
+        re.MULTILINE,
+    )
+
+    def _extract_functions(self, src: str):
+        seen: set = set()
+        for m in self._FUNC_PAT.finditer(src):
+            name, params = m.group(1), m.group(2)
+            line = _line_of(src, m.start())
+            fid = f"{self.svc}:{self.fp}:{name}"
+            if fid not in seen:
+                seen.add(fid)
+                args = [p.strip().split("::")[0].strip() for p in params.split(",") if p.strip() and p.strip() != "..."]
+                self.nodes.append(CodeNode(
+                    id=fid, name=name, type=NodeType.FUNCTION,
+                    file_path=self.fp, line_start=line, service=self.svc,
+                    metadata={"language": "julia", "args": args},
+                ))
+        for m in self._SHORT_FUNC_PAT.finditer(src):
+            name, params = m.group(1), m.group(2)
+            if name in ("if", "for", "while", "begin", "let", "try", "struct", "module", "macro", "function", "using", "import"):
+                continue
+            line = _line_of(src, m.start())
+            fid = f"{self.svc}:{self.fp}:{name}"
+            if fid not in seen:
+                seen.add(fid)
+                args = [p.strip().split("::")[0].strip() for p in params.split(",") if p.strip()]
+                self.nodes.append(CodeNode(
+                    id=fid, name=name, type=NodeType.FUNCTION,
+                    file_path=self.fp, line_start=line, service=self.svc,
+                    metadata={"language": "julia", "args": args, "style": "short"},
+                ))
+
+    # -- macros --
+    _MACRO_PAT = re.compile(r'^\s*macro\s+(\w+)\s*\(([^)]*)\)', re.MULTILINE)
+
+    def _extract_macros(self, src: str):
+        for m in self._MACRO_PAT.finditer(src):
+            name, params = m.group(1), m.group(2)
+            args = [p.strip() for p in params.split(",") if p.strip()]
+            self.nodes.append(CodeNode(
+                id=f"{self.svc}:{self.fp}:macro:{name}", name=f"@{name}", type=NodeType.FUNCTION,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "julia", "kind": "macro", "args": args},
+            ))
+
+    # -- HTTP handlers: Genie.jl, HTTP.jl, Oxygen.jl --
+    _HTTP_HANDLER = re.compile(
+        r'(?:@(?:get|post|put|delete|patch|route)\s*\(\s*["\']([^"\']+)["\']|'
+        r'(?:route|router\.(?:get|post|put|delete|patch))\s*\(\s*["\']([^"\']+)["\'])',
+        re.MULTILINE,
+    )
+
+    def _extract_http_handlers(self, src: str):
+        for m in self._HTTP_HANDLER.finditer(src):
+            route = m.group(1) or m.group(2) or "/"
+            full = m.group(0).lower()
+            method = "GET"
+            for verb in ("post", "put", "delete", "patch"):
+                if verb in full:
+                    method = verb.upper()
+                    break
+            eid = f"{self.svc}:{self.fp}:endpoint:{method}:{route}"
+            self.nodes.append(CodeNode(
+                id=eid, name=f"{method} {route}", type=NodeType.API_ENDPOINT,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "julia", "http_method": method, "route_path": route},
+            ))
+
+    # -- HTTP calls: HTTP.jl, Downloads.download --
+    _HTTP_CALL = re.compile(
+        r'(?:HTTP\.(?:get|post|put|delete|patch|request)|Downloads\.download)\s*\(\s*["\']([^"\']+)["\']',
+        re.MULTILINE | re.IGNORECASE,
+    )
+
+    def _extract_http_calls(self, src: str):
+        for m in self._HTTP_CALL.finditer(src):
+            url = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"http_call:{url}",
+                type=ConnectionType.HTTP_REQUEST,
+                metadata={"line": _line_of(src, m.start()), "language": "julia", "url": url},
+            ))
+
+
+# ─────────────────────────────────────────────────────────────
+#  R Analyzer
+# ─────────────────────────────────────────────────────────────
+
+class RAnalyzer:
+    """Full R source analyzer — library/require, functions, S4/R5/R6 classes, Shiny/Plumber endpoints."""
+
+    def __init__(self, file_path: str, service_name: str):
+        self.fp = file_path
+        self.svc = service_name
+        self.nodes: List[CodeNode] = []
+        self.connections: List[CodeConnection] = []
+
+    def analyze(self, source: str) -> Tuple[List[CodeNode], List[CodeConnection]]:
+        self._extract_imports(source)
+        self._extract_functions(source)
+        self._extract_s4_classes(source)
+        self._extract_r6_classes(source)
+        self._extract_plumber_endpoints(source)
+        self._extract_shiny_components(source)
+        self._extract_http_calls(source)
+        return self.nodes, self.connections
+
+    # -- imports: library(), require(), source(), pacman::p_load() --
+    _LIBRARY_PAT = re.compile(
+        r'(?:library|require|p_load)\s*\(\s*["\']?(\w+)["\']?\s*\)', re.MULTILINE
+    )
+    _SOURCE_PAT = re.compile(
+        r'source\s*\(\s*["\']([^"\']+)["\']\s*\)', re.MULTILINE
+    )
+
+    def _extract_imports(self, src: str):
+        for m in self._LIBRARY_PAT.finditer(src):
+            pkg = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"module:{pkg}",
+                type=ConnectionType.IMPORT,
+                metadata={"line": _line_of(src, m.start()), "language": "r"},
+            ))
+        for m in self._SOURCE_PAT.finditer(src):
+            path = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"module:{path}",
+                type=ConnectionType.IMPORT,
+                metadata={"line": _line_of(src, m.start()), "language": "r", "kind": "source"},
+            ))
+
+    # -- functions: name <- function(...) or name = function(...) --
+    _FUNC_PAT = re.compile(
+        r'^(\w[\w.]*)\s*(?:<-|=)\s*function\s*\(([^)]*)\)', re.MULTILINE
+    )
+
+    def _extract_functions(self, src: str):
+        for m in self._FUNC_PAT.finditer(src):
+            name, params = m.group(1), m.group(2)
+            args = [p.strip().split("=")[0].strip() for p in params.split(",") if p.strip() and p.strip() != "..."]
+            self.nodes.append(CodeNode(
+                id=f"{self.svc}:{self.fp}:{name}", name=name, type=NodeType.FUNCTION,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "r", "args": args},
+            ))
+
+    # -- S4 classes: setClass("ClassName", ...) --
+    _S4_PAT = re.compile(
+        r'setClass\s*\(\s*["\'](\w+)["\']\s*'
+        r'(?:,\s*(?:contains|representation|slots)\s*=)?',
+        re.MULTILINE,
+    )
+    _S4_CONTAINS = re.compile(
+        r'setClass\s*\([^)]*contains\s*=\s*["\'](\w+)["\']', re.MULTILINE
+    )
+
+    def _extract_s4_classes(self, src: str):
+        for m in self._S4_PAT.finditer(src):
+            name = m.group(1)
+            nid = f"{self.svc}:{self.fp}:{name}"
+            self.nodes.append(CodeNode(
+                id=nid, name=name, type=NodeType.CLASS,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "r", "kind": "S4"},
+            ))
+        for m in self._S4_CONTAINS.finditer(src):
+            parent = m.group(1)
+            # Find the class name from same setClass call
+            name_match = re.search(r'setClass\s*\(\s*["\'](\w+)["\']', m.group(0))
+            if name_match:
+                child = name_match.group(1)
+                self.connections.append(CodeConnection(
+                    source_id=f"{self.svc}:{self.fp}:{child}",
+                    target_id=f"class:{parent}",
+                    type=ConnectionType.INHERITANCE,
+                    metadata={"language": "r", "kind": "S4"},
+                ))
+
+    # -- R6 classes: MyClass <- R6Class("MyClass", ...) or R6::R6Class --
+    _R6_PAT = re.compile(
+        r'(\w+)\s*(?:<-|=)\s*(?:R6::)?R6Class\s*\(\s*["\'](\w+)["\']',
+        re.MULTILINE,
+    )
+    _R6_INHERIT = re.compile(
+        r'R6Class\s*\([^)]*inherit\s*=\s*(\w+)', re.MULTILINE
+    )
+
+    def _extract_r6_classes(self, src: str):
+        for m in self._R6_PAT.finditer(src):
+            var_name, class_name = m.group(1), m.group(2)
+            nid = f"{self.svc}:{self.fp}:{class_name}"
+            self.nodes.append(CodeNode(
+                id=nid, name=class_name, type=NodeType.CLASS,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "r", "kind": "R6"},
+            ))
+        for m in self._R6_INHERIT.finditer(src):
+            parent = m.group(1)
+            # Find class name
+            r6_start = src.rfind("R6Class", 0, m.start())
+            if r6_start >= 0:
+                name_m = re.search(r'["\'](\w+)["\']', src[r6_start:m.start()])
+                if name_m:
+                    child = name_m.group(1)
+                    self.connections.append(CodeConnection(
+                        source_id=f"{self.svc}:{self.fp}:{child}",
+                        target_id=f"class:{parent}",
+                        type=ConnectionType.INHERITANCE,
+                        metadata={"language": "r", "kind": "R6"},
+                    ))
+
+    # -- Plumber endpoints: #* @get /path, #* @post /path --
+    _PLUMBER_PAT = re.compile(
+        r'#\*\s*@(get|post|put|delete|patch)\s+(\S+)', re.MULTILINE
+    )
+
+    def _extract_plumber_endpoints(self, src: str):
+        for m in self._PLUMBER_PAT.finditer(src):
+            method, route = m.group(1).upper(), m.group(2)
+            eid = f"{self.svc}:{self.fp}:endpoint:{method}:{route}"
+            self.nodes.append(CodeNode(
+                id=eid, name=f"{method} {route}", type=NodeType.API_ENDPOINT,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "r", "http_method": method, "route_path": route, "framework": "plumber"},
+            ))
+
+    # -- Shiny components: shinyServer, shinyUI, renderPlot, etc. --
+    _SHINY_PAT = re.compile(
+        r'(?:shinyServer|shinyUI|shinyApp|renderPlot|renderTable|renderText|'
+        r'renderPrint|renderUI|observeEvent|reactive|eventReactive|output\$(\w+))',
+        re.MULTILINE,
+    )
+
+    def _extract_shiny_components(self, src: str):
+        for m in self._SHINY_PAT.finditer(src):
+            full = m.group(0)
+            output_name = m.group(1)
+            if output_name:
+                self.nodes.append(CodeNode(
+                    id=f"{self.svc}:{self.fp}:shiny_output:{output_name}",
+                    name=f"output${output_name}", type=NodeType.FUNCTION,
+                    file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                    metadata={"language": "r", "kind": "shiny_output"},
+                ))
+            elif full in ("shinyServer", "shinyUI", "shinyApp"):
+                self.nodes.append(CodeNode(
+                    id=f"{self.svc}:{self.fp}:{full}",
+                    name=full, type=NodeType.FUNCTION,
+                    file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                    metadata={"language": "r", "kind": "shiny_entry"},
+                ))
+
+    # -- HTTP calls: httr, httr2, curl --
+    _HTTP_CALL = re.compile(
+        r'(?:GET|POST|PUT|DELETE|PATCH|httr::(?:GET|POST|PUT|DELETE)|'
+        r'httr2::request|curl::curl_fetch_memory)\s*\(\s*["\']([^"\']+)["\']',
+        re.MULTILINE,
+    )
+
+    def _extract_http_calls(self, src: str):
+        for m in self._HTTP_CALL.finditer(src):
+            url = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"http_call:{url}",
+                type=ConnectionType.HTTP_REQUEST,
+                metadata={"line": _line_of(src, m.start()), "language": "r", "url": url},
+            ))
+
+
+# ─────────────────────────────────────────────────────────────
+#  V (Vlang) Analyzer
+# ─────────────────────────────────────────────────────────────
+
+class VAnalyzer:
+    """Full V source analyzer — imports, structs, enums, interfaces, functions, methods, HTTP."""
+
+    def __init__(self, file_path: str, service_name: str):
+        self.fp = file_path
+        self.svc = service_name
+        self.nodes: List[CodeNode] = []
+        self.connections: List[CodeConnection] = []
+
+    def analyze(self, source: str) -> Tuple[List[CodeNode], List[CodeConnection]]:
+        self._extract_imports(source)
+        self._extract_types(source)
+        self._extract_functions(source)
+        self._extract_http_handlers(source)
+        self._extract_http_calls(source)
+        return self.nodes, self.connections
+
+    # -- imports: import os, import math, import net.http --
+    _IMPORT_PAT = re.compile(r'^\s*import\s+([\w.]+)', re.MULTILINE)
+
+    def _extract_imports(self, src: str):
+        for m in self._IMPORT_PAT.finditer(src):
+            mod = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"module:{mod}",
+                type=ConnectionType.IMPORT,
+                metadata={"line": _line_of(src, m.start()), "language": "v"},
+            ))
+
+    # -- structs, enums, interfaces --
+    _STRUCT_PAT = re.compile(
+        r'^\s*(?:pub\s+)?(?:struct|enum|interface|union)\s+(\w+)',
+        re.MULTILINE,
+    )
+
+    def _extract_types(self, src: str):
+        for m in self._STRUCT_PAT.finditer(src):
+            name = m.group(1)
+            kind = "struct"
+            for k in ("enum", "interface", "union"):
+                if k in m.group(0):
+                    kind = k
+                    break
+            is_pub = "pub" in m.group(0)
+            self.nodes.append(CodeNode(
+                id=f"{self.svc}:{self.fp}:{name}", name=name, type=NodeType.CLASS,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "v", "kind": kind, "is_pub": is_pub},
+            ))
+
+    # -- functions and methods: fn name(...), fn (r Receiver) name(...) --
+    _FN_PAT = re.compile(
+        r'^\s*(?:pub\s+)?fn\s+(?:\(\s*(?:mut\s+)?\w+\s+(\w+)\s*\)\s+)?(\w+)\s*\(([^)]*)\)',
+        re.MULTILINE,
+    )
+
+    def _extract_functions(self, src: str):
+        for m in self._FN_PAT.finditer(src):
+            receiver, name, params = m.group(1), m.group(2), m.group(3)
+            if name in ("if", "for", "match", "return"):
+                continue
+            is_pub = "pub" in m.group(0)
+            if receiver:
+                fid = f"{self.svc}:{self.fp}:{receiver}.{name}"
+            else:
+                fid = f"{self.svc}:{self.fp}:{name}"
+            args = [p.strip().split()[0] if p.strip() else "" for p in params.split(",") if p.strip()]
+            self.nodes.append(CodeNode(
+                id=fid, name=name, type=NodeType.FUNCTION,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "v", "receiver": receiver or "", "is_pub": is_pub, "args": args},
+            ))
+
+    # -- HTTP handlers: vweb routes ['/path'] attribute or .get/.post calls --
+    _VWEB_ATTR = re.compile(
+        r"\[\s*['\"]/([\w/{}:*-]*)['\"](?:\s*;\s*(\w+))?\s*\]", re.MULTILINE
+    )
+    _VWEB_ROUTE = re.compile(
+        r'(?:app|server|mut\s+app)\s*\.\s*(?:get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']',
+        re.MULTILINE,
+    )
+
+    def _extract_http_handlers(self, src: str):
+        for m in self._VWEB_ATTR.finditer(src):
+            route = "/" + m.group(1)
+            method = (m.group(2) or "get").upper()
+            eid = f"{self.svc}:{self.fp}:endpoint:{method}:{route}"
+            self.nodes.append(CodeNode(
+                id=eid, name=f"{method} {route}", type=NodeType.API_ENDPOINT,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "v", "http_method": method, "route_path": route, "framework": "vweb"},
+            ))
+        for m in self._VWEB_ROUTE.finditer(src):
+            route = m.group(1)
+            method = "GET"
+            for verb in ("post", "put", "delete", "patch"):
+                if verb in m.group(0).lower():
+                    method = verb.upper()
+                    break
+            eid = f"{self.svc}:{self.fp}:endpoint:{method}:{route}"
+            self.nodes.append(CodeNode(
+                id=eid, name=f"{method} {route}", type=NodeType.API_ENDPOINT,
+                file_path=self.fp, line_start=_line_of(src, m.start()), service=self.svc,
+                metadata={"language": "v", "http_method": method, "route_path": route},
+            ))
+
+    # -- HTTP calls: http.get, http.post, etc. --
+    _HTTP_CALL = re.compile(
+        r'http\.(?:get|post|put|delete|patch|fetch)\s*\(\s*["\']([^"\']+)["\']',
+        re.MULTILINE | re.IGNORECASE,
+    )
+
+    def _extract_http_calls(self, src: str):
+        for m in self._HTTP_CALL.finditer(src):
+            url = m.group(1)
+            self.connections.append(CodeConnection(
+                source_id=f"{self.svc}:{self.fp}",
+                target_id=f"http_call:{url}",
+                type=ConnectionType.HTTP_REQUEST,
+                metadata={"line": _line_of(src, m.start()), "language": "v", "url": url},
+            ))
+
+
+# ─────────────────────────────────────────────────────────────
 #  Registry — maps file extensions to analyzer classes
 # ─────────────────────────────────────────────────────────────
 
@@ -1388,6 +1875,10 @@ LANG_ANALYZER_MAP: Dict[str, type] = {
     ".ex": ElixirAnalyzer,
     ".exs": ElixirAnalyzer,
     ".sol": SolidityAnalyzer,
+    ".jl": JuliaAnalyzer,
+    ".r": RAnalyzer,
+    ".R": RAnalyzer,
+    ".v": VAnalyzer,
 }
 
 # Language name for metadata
@@ -1396,7 +1887,7 @@ LANG_NAME_MAP: Dict[str, str] = {
     ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp",
     ".rb": "ruby", ".php": "php", ".swift": "swift", ".scala": "scala", ".dart": "dart",
     ".cs": "csharp", ".lua": "lua", ".zig": "zig", ".ex": "elixir", ".exs": "elixir",
-    ".sol": "solidity",
+    ".sol": "solidity", ".jl": "julia", ".r": "r", ".R": "r", ".v": "v",
 }
 
 # Skip directories
