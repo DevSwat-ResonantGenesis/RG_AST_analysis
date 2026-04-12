@@ -672,7 +672,7 @@
             <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><polygon points="8,1 14,5 14,11 8,15 2,11 2,5" fill="#FF6B8A" opacity="0.9"/></svg>Class</div>
             <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="none" stroke="#01A6BC" stroke-width="2.5" opacity="0.9"/></svg>API Endpoint</div>
             <h3 style="margin-top:6px;">Connections</h3>
-            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#FFD800" stroke-width="2" opacity="0.8"/></svg>Active</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#667eea" stroke-width="2" opacity="0.8"/></svg>Active</div>
             <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#FF4466" stroke-width="2" stroke-dasharray="3,2" opacity="0.8"/></svg>Broken</div>
             <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#3A3A4A" stroke-width="2" opacity="0.6"/></svg>Dead</div>
             </div>
@@ -822,7 +822,7 @@
         
         const NODE_COLORS = { service: 0xFFD800, file: 0x00E5A0, function: 0xFFAA40, class: 0xFF6B8A, api_endpoint: 0x01A6BC };
         const CHANGE_COLORS = { added: 0x00E676, removed: 0xFF5252, modified: 0xFFAB40, unchanged: 0x40C4FF };
-        const CONNECTION_COLORS = { active: 0xFFD800, broken: 0xFF4466, dead: 0x3A3A4A };
+        const CONNECTION_COLORS = { active: 0x667eea, broken: 0xFF4466, dead: 0x3A3A4A };
 
         // ============ PANEL DRAG & VISIBILITY ============
         let draggedPanel = null;
@@ -1375,7 +1375,7 @@
         function highlightConnections(nodeId) {
             connectionObjects.forEach(conn => {
                 if (conn.userData.source === nodeId || conn.userData.target === nodeId) {
-                    conn.material.color.setHex(0xFFD800);
+                    conn.material.color.setHex(0x667eea);
                     conn.material.opacity = 0.9;
                 } else {
                     conn.material.opacity = 0.03;
