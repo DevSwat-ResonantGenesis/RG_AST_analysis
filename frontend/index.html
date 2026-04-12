@@ -11,12 +11,12 @@
         #canvas { width: 100%; height: 100%; }
         
         .panel { position: absolute; background: rgba(14, 14, 18, 0.92); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px; backdrop-filter: blur(16px); font-size: 0.75em; z-index: 10; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
-        #controls { top: 50px; left: 10px; width: 210px; max-height: calc(100vh - 60px); overflow-y: auto; }
-        #info-panel { top: 50px; right: 10px; width: 250px; max-height: 45vh; overflow-y: auto; display: none; }
-        #graph-panel { bottom: 220px; right: 10px; width: 220px; max-height: 28vh; overflow-y: auto; }
-        #stats-panel { bottom: 10px; left: 10px; width: 210px; }
-        #timeline-panel { top: 50px; left: 230px; width: 250px; max-height: calc(100vh - 60px); overflow-y: auto; display: none; }
-        #playback-panel { bottom: 10px; left: 50%; transform: translateX(-50%); width: 380px; display: none; z-index: 20; }
+        #controls { top: 50px; left: 10px; width: 200px; max-height: calc(100vh - 70px); overflow-y: auto; }
+        #info-panel { top: 50px; right: 10px; width: 220px; max-height: 45vh; overflow-y: auto; display: none; }
+        #graph-panel { bottom: 10px; right: 10px; width: 200px; max-height: 30vh; overflow-y: auto; }
+        #stats-panel { bottom: 10px; left: 220px; width: 150px; display: none; }
+        #timeline-panel { top: 50px; left: 220px; width: 230px; max-height: calc(100vh - 70px); overflow-y: auto; display: none; }
+        #playback-panel { bottom: 10px; left: 50%; transform: translateX(-50%); width: 360px; display: none; z-index: 20; }
         
         h2 { color: #888; margin-bottom: 6px; font-size: 0.95em; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 4px; }
         h3 { color: #888; margin: 6px 0 4px; font-size: 0.85em; }
@@ -263,8 +263,9 @@
         <div id="panel-toolbar">
             <button class="toolbar-btn active" onclick="togglePanel('controls')" id="tb-controls">⚙️ Controls</button>
             <button class="toolbar-btn" onclick="togglePanel('info-panel')" id="tb-info-panel">📋 Details</button>
-            <button class="toolbar-btn active" onclick="togglePanel('stats-panel')" id="tb-stats-panel">📈 Stats</button>
+            <button class="toolbar-btn" onclick="togglePanel('stats-panel')" id="tb-stats-panel">📈 Stats</button>
             <button class="toolbar-btn active" onclick="togglePanel('graph-panel')" id="tb-graph-panel">🔍 Graph</button>
+            <button class="toolbar-btn" onclick="togglePanel('minimap-panel')" id="tb-minimap-panel">🗺️ Map</button>
             <button class="toolbar-btn" onclick="togglePanel('timeline-panel')" id="tb-timeline-panel">📊 Timeline</button>
             <button class="toolbar-btn" onclick="togglePanel('governance-panel')" id="tb-governance-panel">🛡️ Governance</button>
             <button class="toolbar-btn" onclick="togglePanel('playback-panel')" id="tb-playback-panel">▶️ Playback</button>
@@ -635,7 +636,7 @@
             </div>
         </div>
         
-        <div class="panel" id="governance-panel" style="display:none;top:50px;left:230px;width:300px;max-height:calc(100vh - 60px);overflow-y:auto;">
+        <div class="panel" id="governance-panel" style="display:none;top:50px;left:220px;width:260px;max-height:calc(100vh - 70px);overflow-y:auto;">
             <div class="panel-header" onmousedown="startDrag(event, 'governance-panel')">
                 <h2>🛡️ Governance Report</h2>
                 <div class="panel-controls">
@@ -677,7 +678,7 @@
             </div>
         </div>
         
-        <div class="panel" id="agent-panel" style="display:none;top:50px;right:10px;width:300px;max-height:calc(100vh - 60px);overflow-y:auto;">
+        <div class="panel" id="agent-panel" style="display:none;top:50px;right:10px;width:240px;max-height:calc(100vh - 70px);overflow-y:auto;">
             <div class="panel-header" onmousedown="startDrag(event, 'agent-panel')">
                 <h2>🤖 Graph Janitor Agent</h2>
                 <div class="panel-controls">
@@ -729,7 +730,7 @@
             </div>
         </div>
         
-        <div class="panel" id="minimap-panel" style="bottom:10px;right:10px;top:auto;left:auto;width:220px;">
+        <div class="panel" id="minimap-panel" style="display:none;bottom:10px;right:220px;top:auto;left:auto;width:190px;">
             <div class="panel-header" onmousedown="startDrag(event, 'minimap-panel')">
                 <h2>🗺️ Minimap</h2>
                 <div class="panel-controls">
