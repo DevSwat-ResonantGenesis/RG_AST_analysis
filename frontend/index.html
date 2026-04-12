@@ -39,8 +39,9 @@
         .stat-value.success { color: rgba(255,255,255,0.35); }
         .stat-value.warning { color: rgba(255,255,255,0.35); }
         
-        .legend-item { display: flex; align-items: center; margin: 3px 0; font-size: 0.8em; }
-        .legend-color { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        .legend-item { display: flex; align-items: center; margin: 4px 0; font-size: 0.8em; gap: 8px; }
+        .legend-color { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+        .legend-icon { width: 16px; height: 16px; flex-shrink: 0; }
         
         .toggle-row { display: flex; gap: 5px; margin-bottom: 8px; }
         .toggle-btn { flex: 1; padding: 5px; font-size: 0.75em; }
@@ -49,7 +50,7 @@
         .heat-bar { height: 8px; border-radius: 4px; margin: 5px 0; background: linear-gradient(90deg, #1a6b4a, #f0c040, #e74c3c); }
         .heat-indicator { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; position: relative; }
         
-        .timeline-item { padding: 8px; margin: 5px 0; background: rgba(14, 14, 18, 0.7); border-radius: 6px; border-left: 3px solid rgba(100, 120, 255, 0.15); }
+        .timeline-item { padding: 8px; margin: 5px 0; background: rgba(14, 14, 18, 0.7); border-radius: 6px; border-left: 3px solid rgba(255, 216, 0, 0.2); }
         .timeline-item.current { border-left-color: rgba(255,255,255,0.35); }
         .timeline-item .label { font-weight: bold; color: #888; }
         .timeline-item .delta { font-size: 0.8em; color: #a0a0a0; }
@@ -66,14 +67,22 @@
         
         .tabs { display: flex; gap: 2px; margin-bottom: 10px; }
         .tab { flex: 1; padding: 6px; text-align: center; background: rgba(20, 20, 26, 0.8); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.8em; transition: background 0.15s ease; }
-        .tab.active { background: rgba(100, 120, 255, 0.12); border-bottom: 2px solid rgba(100, 120, 255, 0.5); }
+        .tab.active { background: rgba(255, 216, 0, 0.1); border-bottom: 2px solid rgba(255, 216, 0, 0.5); }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
         #loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 12, 0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
-        .spinner { width: 50px; height: 50px; border: 3px solid rgba(100, 120, 255, 0.15); border-top-color: rgba(100, 180, 255, 0.8); border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #loading-text { margin-top: 15px; color: rgba(160, 180, 255, 0.8); font-size: 0.95em; letter-spacing: 0.3px; }
+        .spinner { width: 50px; height: 50px; position: relative; }
+        .spinner-dot { width: 8px; height: 8px; border-radius: 50%; position: absolute; top: 50%; left: 50%; margin: -4px 0 0 -4px; animation: dotOrbit 1.4s linear infinite; }
+        .spinner-dot:nth-child(1) { background: #FFD800; animation-delay: 0s; }
+        .spinner-dot:nth-child(2) { background: #01A6BC; animation-delay: -0.2s; }
+        .spinner-dot:nth-child(3) { background: #71C23E; animation-delay: -0.4s; }
+        .spinner-dot:nth-child(4) { background: #FFFFFF; animation-delay: -0.6s; }
+        .spinner-dot:nth-child(5) { background: #FA547C; animation-delay: -0.8s; }
+        .spinner-dot:nth-child(6) { background: #FAA525; animation-delay: -1.0s; }
+        .spinner-dot:nth-child(7) { background: #121214; border: 1px solid rgba(255,255,255,0.15); animation-delay: -1.2s; }
+        @keyframes dotOrbit { 0% { transform: rotate(0deg) translateX(20px) scale(1); opacity: 1; } 50% { transform: rotate(180deg) translateX(20px) scale(0.6); opacity: 0.5; } 100% { transform: rotate(360deg) translateX(20px) scale(1); opacity: 1; } }
+        #loading-text { margin-top: 20px; color: rgba(255, 216, 0, 0.7); font-size: 0.95em; letter-spacing: 0.3px; }
         
         .project-input { display: flex; gap: 5px; margin-bottom: 5px; }
         .project-input input { flex: 1; }
@@ -99,9 +108,9 @@
         .panel.minimized { max-height: none !important; }
         
         /* Panel toolbar */
-        #panel-toolbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(14, 14, 18, 0.9); border: 1px solid rgba(100, 120, 255, 0.12); border-radius: 20px; padding: 5px 15px; display: flex; gap: 8px; z-index: 100; backdrop-filter: blur(16px); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        #panel-toolbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(14, 14, 18, 0.9); border: 1px solid rgba(255, 216, 0, 0.15); border-radius: 20px; padding: 5px 15px; display: flex; gap: 8px; z-index: 100; backdrop-filter: blur(16px); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
         .toolbar-btn { width: auto; padding: 5px 10px; margin: 0; font-size: 0.7em; border-radius: 12px; opacity: 0.6; }
-        .toolbar-btn.active { opacity: 1; background: rgba(100, 120, 255, 0.2); border: 1px solid rgba(100, 120, 255, 0.3); }
+        .toolbar-btn.active { opacity: 1; background: rgba(255, 216, 0, 0.12); border: 1px solid rgba(255, 216, 0, 0.25); }
         
         /* Testimonial styles */
         #testimonial-badge { 
@@ -138,7 +147,7 @@
             width: 380px;
             max-height: 70vh;
             background: rgba(14, 14, 18, 0.97);
-            border: 1px solid rgba(100, 120, 255, 0.12);
+            border: 1px solid rgba(255, 216, 0, 0.12);
             border-radius: 12px;
             padding: 20px;
             z-index: 200;
@@ -262,7 +271,15 @@
         </div>
         
         <div id="loading" style="display:none">
-            <div class="spinner"></div>
+            <div class="spinner">
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+                <div class="spinner-dot"></div>
+            </div>
             <div id="loading-text">Analyzing...</div>
         </div>
         
@@ -648,15 +665,15 @@
             <div class="stat"><span>Hub Nodes</span><span class="stat-value" id="graph-hubs">-</span></div>
             <div class="stat"><span>Isolated</span><span class="stat-value danger" id="graph-isolated">-</span></div>
             <h3>Legend</h3>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>Service</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.4)"></div>File</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Function</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>API Endpoint</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Active/Live</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.4)"></div>Broken/Invalid</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.35)"></div>Modified/Dormant</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.3)"></div>Experimental</div>
-            <div class="legend-item"><div class="legend-color" style="background:rgba(255,255,255,0.25)"></div>Deprecated</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><polygon points="8,1 15,5 13,13 3,13 1,5" fill="#FFD800" opacity="0.9"/></svg>Service</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><polygon points="8,1 15,8 8,15 1,8" fill="#00E5A0" opacity="0.9"/></svg>File</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#FFAA40" opacity="0.9"/></svg>Function</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><polygon points="8,1 14,5 14,11 8,15 2,11 2,5" fill="#FF6B8A" opacity="0.9"/></svg>Class</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="none" stroke="#01A6BC" stroke-width="2.5" opacity="0.9"/></svg>API Endpoint</div>
+            <h3 style="margin-top:6px;">Connections</h3>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#FFD800" stroke-width="2" opacity="0.8"/></svg>Active</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#FF4466" stroke-width="2" stroke-dasharray="3,2" opacity="0.8"/></svg>Broken</div>
+            <div class="legend-item"><svg class="legend-icon" viewBox="0 0 16 4"><line x1="0" y1="2" x2="16" y2="2" stroke="#3A3A4A" stroke-width="2" opacity="0.6"/></svg>Dead</div>
             </div>
         </div>
         
@@ -802,9 +819,9 @@
         // UI state
         let connectionsVisible = true;
         
-        const NODE_COLORS = { service: 0x6C7BFF, file: 0x00E5A0, function: 0xFFAA40, class: 0xFF6B8A, api_endpoint: 0xBF7FFF };
+        const NODE_COLORS = { service: 0xFFD800, file: 0x00E5A0, function: 0xFFAA40, class: 0xFF6B8A, api_endpoint: 0x01A6BC };
         const CHANGE_COLORS = { added: 0x00E676, removed: 0xFF5252, modified: 0xFFAB40, unchanged: 0x40C4FF };
-        const CONNECTION_COLORS = { active: 0x4488FF, broken: 0xFF4466, dead: 0x3A3A4A };
+        const CONNECTION_COLORS = { active: 0xFFD800, broken: 0xFF4466, dead: 0x3A3A4A };
 
         // ============ PANEL DRAG & VISIBILITY ============
         let draggedPanel = null;
@@ -1206,8 +1223,8 @@
             const fillLight = new THREE.PointLight(0xff8844, 0.3, 500);
             fillLight.position.set(-120, -30, -60);
             scene.add(fillLight);
-            // Rim light: subtle purple from behind
-            const rimLight = new THREE.PointLight(0x9966ff, 0.35, 600);
+            // Rim light: warm yellow from behind
+            const rimLight = new THREE.PointLight(0xFFD800, 0.25, 600);
             rimLight.position.set(0, 60, -200);
             scene.add(rimLight);
             
@@ -1231,7 +1248,7 @@
             }
             particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
             const particleMaterial = new THREE.PointsMaterial({
-                color: 0x4466aa,
+                color: 0xFFD800,
                 size: 0.8,
                 transparent: true,
                 opacity: 0.3,
@@ -1357,7 +1374,7 @@
         function highlightConnections(nodeId) {
             connectionObjects.forEach(conn => {
                 if (conn.userData.source === nodeId || conn.userData.target === nodeId) {
-                    conn.material.color.setHex(0x66DDFF);
+                    conn.material.color.setHex(0xFFD800);
                     conn.material.opacity = 0.9;
                 } else {
                     conn.material.opacity = 0.03;
@@ -2822,8 +2839,8 @@ ${JSON.stringify(summary, null, 2)}
                         if (change.change_type === 'added') size *= 1.3;
                     }
                 } else {
-                    // Middle snapshot - transitional (purple)
-                    color = 0x9B59B6;
+                    // Middle snapshot - transitional (yellow)
+                    color = 0xFFD800;
                     if (change && change.change_type === 'modified') {
                         color = 0xF39C12;
                     }
@@ -3091,7 +3108,7 @@ ${JSON.stringify(summary, null, 2)}
             const STATUS_COLORS = {
                 'live': 0x2ECC71,
                 'dormant': 0xF39C12,
-                'experimental': 0x9B59B6,
+                'experimental': 0x01A6BC,
                 'deprecated': 0x95A5A6,
                 'invalid': 0xE74C3C,
                 'unknown': 0x666666
@@ -3331,7 +3348,7 @@ ${JSON.stringify(summary, null, 2)}
                     } else if (p.proposal.includes('DORMANT')) {
                         nodeObjects[nodeId].mesh.material.color.setHex(0xf39c12);
                     } else if (p.proposal.includes('ISOLATE')) {
-                        nodeObjects[nodeId].mesh.material.color.setHex(0x9b59b6);
+                        nodeObjects[nodeId].mesh.material.color.setHex(0x01A6BC);
                     } else if (p.proposal.includes('ORPHAN')) {
                         nodeObjects[nodeId].mesh.material.color.setHex(0x3498db);
                     }
