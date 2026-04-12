@@ -6,11 +6,11 @@
     <title>Code Architecture 3D Visualizer - Advanced</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; background: #262321; color: #fff; overflow: hidden; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0c; color: #e0e0e8; overflow: hidden; }
         #container { width: 100vw; height: 100vh; position: relative; }
         #canvas { width: 100%; height: 100%; }
         
-        .panel { position: absolute; background: rgba(50, 49, 46, 0.95); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; backdrop-filter: blur(10px); font-size: 0.75em; z-index: 10; }
+        .panel { position: absolute; background: rgba(14, 14, 18, 0.92); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 10px; backdrop-filter: blur(16px); font-size: 0.75em; z-index: 10; box-shadow: 0 4px 24px rgba(0,0,0,0.5); }
         #controls { top: 10px; left: 10px; width: 220px; max-height: 96vh; overflow-y: auto; }
         #info-panel { top: 10px; right: 10px; width: 260px; max-height: 45vh; overflow-y: auto; display: none; }
         #graph-panel { bottom: 10px; right: 10px; width: 240px; max-height: 30vh; overflow-y: auto; }
@@ -23,16 +23,17 @@
         .control-group { margin-bottom: 6px; }
         .control-group label { display: block; margin-bottom: 2px; color: #a0a0a0; font-size: 0.75em; }
         
-        select, input, button { width: 100%; padding: 5px 8px; background: #32312E; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: #fff; font-size: 0.8em; margin-bottom: 4px; }
-        button { cursor: pointer; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); font-weight: bold; }
+        select, input, button { width: 100%; padding: 5px 8px; background: rgba(20, 20, 26, 0.8); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; color: #e0e0e8; font-size: 0.8em; margin-bottom: 4px; }
+        button { cursor: pointer; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); font-weight: bold; transition: all 0.15s ease; }
+        button:active { transform: scale(0.97); }
         button:hover { opacity: 0.9; }
-        .btn-secondary { background: #32312E; border: 1px solid rgba(255,255,255,0.08); }
+        .btn-secondary { background: rgba(20, 20, 26, 0.8); border: 1px solid rgba(255,255,255,0.06); }
         .btn-danger { background: rgba(255,255,255,0.08); }
         .btn-success { background: rgba(255,255,255,0.08); }
         .btn-warning { background: rgba(255,255,255,0.08); }
         .btn-small { padding: 4px 8px; font-size: 0.75em; width: auto; display: inline-block; margin: 2px; }
         
-        .stat { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #333; font-size: 0.85em; }
+        .stat { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.85em; }
         .stat-value { color: #888; font-weight: bold; }
         .stat-value.danger { color: rgba(255,255,255,0.4); }
         .stat-value.success { color: rgba(255,255,255,0.35); }
@@ -45,34 +46,34 @@
         .toggle-btn { flex: 1; padding: 5px; font-size: 0.75em; }
         .toggle-btn.active { background: rgba(255,255,255,0.12); }
         
-        .heat-bar { height: 8px; border-radius: 4px; margin: 5px 0; background: linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.35), rgba(255,255,255,0.5)); }
+        .heat-bar { height: 8px; border-radius: 4px; margin: 5px 0; background: linear-gradient(90deg, #1a6b4a, #f0c040, #e74c3c); }
         .heat-indicator { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; position: relative; }
         
-        .timeline-item { padding: 8px; margin: 5px 0; background: #262321; border-radius: 4px; border-left: 3px solid rgba(255,255,255,0.12); }
+        .timeline-item { padding: 8px; margin: 5px 0; background: rgba(14, 14, 18, 0.7); border-radius: 6px; border-left: 3px solid rgba(100, 120, 255, 0.15); }
         .timeline-item.current { border-left-color: rgba(255,255,255,0.35); }
         .timeline-item .label { font-weight: bold; color: #888; }
         .timeline-item .delta { font-size: 0.8em; color: #a0a0a0; }
         .timeline-item .delta.positive { color: rgba(255,255,255,0.35); }
         .timeline-item .delta.negative { color: rgba(255,255,255,0.4); }
         
-        .change-item { padding: 5px; margin: 3px 0; background: #262321; border-radius: 4px; font-size: 0.8em; }
+        .change-item { padding: 5px; margin: 3px 0; background: rgba(14, 14, 18, 0.7); border-radius: 6px; font-size: 0.8em; }
         .change-item.added { border-left: 3px solid rgba(255,255,255,0.35); }
         .change-item.removed { border-left: 3px solid rgba(255,255,255,0.4); }
         .change-item.modified { border-left: 3px solid rgba(255,255,255,0.35); }
         
-        .explanation-box { background: #262321; padding: 8px; border-radius: 4px; margin: 5px 0; font-size: 0.8em; line-height: 1.4; }
+        .explanation-box { background: rgba(14, 14, 18, 0.7); padding: 8px; border-radius: 6px; margin: 5px 0; font-size: 0.8em; line-height: 1.4; }
         .explanation-box .title { color: #888; font-weight: bold; margin-bottom: 5px; }
         
         .tabs { display: flex; gap: 2px; margin-bottom: 10px; }
-        .tab { flex: 1; padding: 6px; text-align: center; background: #32312E; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8em; }
-        .tab.active { background: rgba(255,255,255,0.08); }
+        .tab { flex: 1; padding: 6px; text-align: center; background: rgba(20, 20, 26, 0.8); border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.8em; transition: background 0.15s ease; }
+        .tab.active { background: rgba(100, 120, 255, 0.12); border-bottom: 2px solid rgba(100, 120, 255, 0.5); }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
-        #loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(50, 49, 46, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
-        .spinner { width: 50px; height: 50px; border: 4px solid #333; border-top-color: #888; border-radius: 50%; animation: spin 1s linear infinite; }
+        #loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 12, 0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        .spinner { width: 50px; height: 50px; border: 3px solid rgba(100, 120, 255, 0.15); border-top-color: rgba(100, 180, 255, 0.8); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        #loading-text { margin-top: 15px; color: #888; }
+        #loading-text { margin-top: 15px; color: rgba(160, 180, 255, 0.8); font-size: 0.95em; letter-spacing: 0.3px; }
         
         .project-input { display: flex; gap: 5px; margin-bottom: 5px; }
         .project-input input { flex: 1; }
@@ -86,7 +87,7 @@
         
         /* Draggable panels */
         .panel { cursor: default; user-select: none; }
-        .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: move; margin: -10px -10px 8px -10px; padding: 8px 10px; background: rgba(42, 42, 58, 0.5); border-radius: 8px 8px 0 0; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: move; margin: -10px -10px 8px -10px; padding: 8px 10px; background: rgba(18, 18, 24, 0.6); border-radius: 10px 10px 0 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
         .panel-header h2 { margin: 0; border: none; padding: 0; }
         .panel-controls { display: flex; gap: 4px; }
         .panel-btn { width: 20px; height: 20px; padding: 0; margin: 0; border-radius: 50%; font-size: 10px; line-height: 20px; text-align: center; cursor: pointer; border: none; color: #fff; }
@@ -98,9 +99,9 @@
         .panel.minimized { max-height: none !important; }
         
         /* Panel toolbar */
-        #panel-toolbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(50, 49, 46, 0.95); border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; padding: 5px 15px; display: flex; gap: 8px; z-index: 100; backdrop-filter: blur(10px); }
+        #panel-toolbar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(14, 14, 18, 0.9); border: 1px solid rgba(100, 120, 255, 0.12); border-radius: 20px; padding: 5px 15px; display: flex; gap: 8px; z-index: 100; backdrop-filter: blur(16px); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
         .toolbar-btn { width: auto; padding: 5px 10px; margin: 0; font-size: 0.7em; border-radius: 12px; opacity: 0.6; }
-        .toolbar-btn.active { opacity: 1; background: rgba(255,255,255,0.3); }
+        .toolbar-btn.active { opacity: 1; background: rgba(100, 120, 255, 0.2); border: 1px solid rgba(100, 120, 255, 0.3); }
         
         /* Testimonial styles */
         #testimonial-badge { 
@@ -136,8 +137,8 @@
             left: 20px;
             width: 380px;
             max-height: 70vh;
-            background: rgba(50, 49, 46, 0.98);
-            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(14, 14, 18, 0.97);
+            border: 1px solid rgba(100, 120, 255, 0.12);
             border-radius: 12px;
             padding: 20px;
             z-index: 200;
@@ -190,7 +191,7 @@
             margin: 15px 0;
         }
         .benefit-card {
-            background: rgba(42, 42, 58, 0.5);
+            background: rgba(18, 18, 24, 0.6);
             border-radius: 8px;
             padding: 12px;
             text-align: center;
@@ -405,7 +406,7 @@
                     <button class="btn-secondary btn-small" onclick="removeMultiPath()">- Remove</button>
                 </div>
                 <button class="btn-success" onclick="analyzeMultiProject()">🔍 Analyze All Together</button>
-                <div id="multi-project-info" style="display:none;margin-top:10px;padding:8px;background:#262321;border-radius:4px;">
+                <div id="multi-project-info" style="display:none;margin-top:10px;padding:8px;background:rgba(14,14,18,0.7);border-radius:4px;">
                     <div class="stat"><span>Projects</span><span class="stat-value" id="multi-projects">-</span></div>
                     <div class="stat"><span>Cross-Project Links</span><span class="stat-value success" id="multi-cross-links">-</span></div>
                 </div>
@@ -668,7 +669,7 @@
                 </div>
             </div>
             <div class="panel-content">
-                <div id="agent-status" style="padding:10px;background:#262321;border-radius:4px;margin-bottom:10px;">
+                <div id="agent-status" style="padding:10px;background:rgba(14,14,18,0.7);border-radius:4px;margin-bottom:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <span id="agent-health-emoji">⚪</span>
                         <span id="agent-health-status">Not initialized</span>
@@ -720,7 +721,7 @@
                 </div>
             </div>
             <div class="panel-content" style="padding:5px;">
-                <canvas id="minimap-canvas" width="180" height="140" style="background:#32312E;border-radius:4px;cursor:crosshair;"></canvas>
+                <canvas id="minimap-canvas" width="180" height="140" style="background:#0e0e12;border-radius:6px;cursor:crosshair;"></canvas>
                 <div style="font-size:0.7em;margin-top:5px;color:#a0a0a0;">
                     <span id="minimap-info">Click to navigate</span>
                 </div>
@@ -750,7 +751,7 @@
                 <input type="range" id="timeline-slider" min="0" max="2" value="0" style="flex:1" oninput="sliderChange()">
                 <span id="current-version">-</span>
             </div>
-            <div id="playback-info" style="margin-top:10px;padding:8px;background:#262321;border-radius:4px;">
+            <div id="playback-info" style="margin-top:10px;padding:8px;background:rgba(14,14,18,0.7);border-radius:4px;">
                 <div id="playback-label" style="font-weight:bold;color:rgba(255,255,255,0.3)">Select projects to compare</div>
                 <div id="playback-stats" style="font-size:0.85em;color:#a0a0a0"></div>
             </div>
@@ -801,9 +802,9 @@
         // UI state
         let connectionsVisible = true;
         
-        const NODE_COLORS = { service: 0x667eea, file: 0x4ECDC4, function: 0xF39C12, class: 0xE67E22, api_endpoint: 0x9B59B6 };
-        const CHANGE_COLORS = { added: 0x2ECC71, removed: 0xE74C3C, modified: 0xF39C12, unchanged: 0x4ECDC4 };
-        const CONNECTION_COLORS = { active: 0x2ECC71, broken: 0xE74C3C, dead: 0x95A5A6 };
+        const NODE_COLORS = { service: 0x6C7BFF, file: 0x00E5A0, function: 0xFFAA40, class: 0xFF6B8A, api_endpoint: 0xBF7FFF };
+        const CHANGE_COLORS = { added: 0x00E676, removed: 0xFF5252, modified: 0xFFAB40, unchanged: 0x40C4FF };
+        const CONNECTION_COLORS = { active: 0x4488FF, broken: 0xFF4466, dead: 0x3A3A4A };
 
         // ============ PANEL DRAG & VISIBILITY ============
         let draggedPanel = null;
@@ -1169,30 +1170,76 @@
             btn.textContent = panel.classList.contains('minimized') ? '+' : '−';
         }
 
+        // Particle dust system
+        let particleSystem = null;
+        let particlePositions = null;
+        let particleSpeeds = null;
+
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0a1a);
-            scene.fog = new THREE.FogExp2(0x0a0a1a, 0.002);
+            scene.background = new THREE.Color(0x0a0a0c);
+            scene.fog = new THREE.FogExp2(0x0a0a0c, 0.0015);
             
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-            camera.position.set(0, 100, 200);
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2500);
+            camera.position.set(0, 120, 240);
             
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true, alpha: false });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
             
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.06;
+            controls.rotateSpeed = 0.5;
+            controls.zoomSpeed = 0.8;
             
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            // Ambient: very subtle blue fill
+            const ambientLight = new THREE.AmbientLight(0x8090c0, 0.25);
             scene.add(ambientLight);
-            const pointLight = new THREE.PointLight(0x667eea, 1, 500);
-            pointLight.position.set(0, 100, 0);
-            scene.add(pointLight);
+            // Key light: cool white from above
+            const keyLight = new THREE.PointLight(0xc0d0ff, 0.9, 800);
+            keyLight.position.set(50, 180, 80);
+            scene.add(keyLight);
+            // Fill light: warm accent from below-left
+            const fillLight = new THREE.PointLight(0xff8844, 0.3, 500);
+            fillLight.position.set(-120, -30, -60);
+            scene.add(fillLight);
+            // Rim light: subtle purple from behind
+            const rimLight = new THREE.PointLight(0x9966ff, 0.35, 600);
+            rimLight.position.set(0, 60, -200);
+            scene.add(rimLight);
             
-            const gridHelper = new THREE.GridHelper(400, 40, 0x333333, 0x222222);
+            // Grid: very subtle, wide
+            const gridHelper = new THREE.GridHelper(500, 60, 0x16161e, 0x101018);
+            gridHelper.position.y = -2;
+            gridHelper.material.transparent = true;
+            gridHelper.material.opacity = 0.35;
             scene.add(gridHelper);
+
+            // Floating particle dust
+            const particleCount = 600;
+            const particleGeometry = new THREE.BufferGeometry();
+            particlePositions = new Float32Array(particleCount * 3);
+            particleSpeeds = new Float32Array(particleCount);
+            for (let i = 0; i < particleCount; i++) {
+                particlePositions[i * 3] = (Math.random() - 0.5) * 500;
+                particlePositions[i * 3 + 1] = Math.random() * 200 - 20;
+                particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 500;
+                particleSpeeds[i] = 0.02 + Math.random() * 0.06;
+            }
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+            const particleMaterial = new THREE.PointsMaterial({
+                color: 0x4466aa,
+                size: 0.8,
+                transparent: true,
+                opacity: 0.3,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+            scene.add(particleSystem);
             
             raycaster = new THREE.Raycaster();
             mouse = new THREE.Vector2();
@@ -1248,13 +1295,23 @@
             if (intersects.length > 0) {
                 const nodeId = intersects[0].object.userData.nodeId;
                 if (hoveredNode !== nodeId && nodeObjects[nodeId]) {
-                    if (hoveredNode && nodeObjects[hoveredNode]) nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                    if (hoveredNode && nodeObjects[hoveredNode]) {
+                        nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                        if (nodeObjects[hoveredNode].mesh.material && nodeObjects[hoveredNode].mesh.material.emissiveIntensity !== undefined)
+                            nodeObjects[hoveredNode].mesh.material.emissiveIntensity = nodeObjects[hoveredNode].type === 'service' ? 0.35 : 0.2;
+                    }
                     hoveredNode = nodeId;
-                    nodeObjects[hoveredNode].mesh.scale.setScalar(1.3);
+                    nodeObjects[hoveredNode].mesh.scale.setScalar(1.4);
+                    if (nodeObjects[hoveredNode].mesh.material && nodeObjects[hoveredNode].mesh.material.emissiveIntensity !== undefined)
+                        nodeObjects[hoveredNode].mesh.material.emissiveIntensity = 0.7;
                     document.body.style.cursor = 'pointer';
                 }
             } else {
-                if (hoveredNode && nodeObjects[hoveredNode]) nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                if (hoveredNode && nodeObjects[hoveredNode]) {
+                    nodeObjects[hoveredNode].mesh.scale.setScalar(1);
+                    if (nodeObjects[hoveredNode].mesh.material && nodeObjects[hoveredNode].mesh.material.emissiveIntensity !== undefined)
+                        nodeObjects[hoveredNode].mesh.material.emissiveIntensity = nodeObjects[hoveredNode].type === 'service' ? 0.35 : 0.2;
+                }
                 hoveredNode = null;
                 document.body.style.cursor = 'default';
             }
@@ -1300,10 +1357,10 @@
         function highlightConnections(nodeId) {
             connectionObjects.forEach(conn => {
                 if (conn.userData.source === nodeId || conn.userData.target === nodeId) {
-                    conn.material.color.setHex(0xFFFFFF);
-                    conn.material.opacity = 1;
+                    conn.material.color.setHex(0x66DDFF);
+                    conn.material.opacity = 0.9;
                 } else {
-                    conn.material.opacity = 0.1;
+                    conn.material.opacity = 0.03;
                 }
             });
         }
@@ -1619,18 +1676,18 @@
             
             Object.keys(data.services).forEach(serviceName => {
                 const angle = (serviceIndex / serviceCount) * Math.PI * 2;
-                servicePositions[serviceName] = { x: Math.cos(angle) * 100, z: Math.sin(angle) * 100, y: 0 };
+                servicePositions[serviceName] = { x: Math.cos(angle) * 130, z: Math.sin(angle) * 130, y: 0 };
                 serviceIndex++;
             });
             
             data.nodes.forEach(node => {
                 const basePos = servicePositions[node.service] || { x: 0, y: 0, z: 0 };
-                let size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : node.type === 'api_endpoint' ? 4 : 2;
+                let size = node.type === 'service' ? 10 : node.type === 'file' ? 3.5 : node.type === 'api_endpoint' ? 4.5 : 2;
                 
                 const position = {
-                    x: basePos.x + (Math.random() - 0.5) * 30,
-                    y: (node.type === 'service' ? 50 : 10 + Math.random() * 40),
-                    z: basePos.z + (Math.random() - 0.5) * 30
+                    x: basePos.x + (Math.random() - 0.5) * 35,
+                    y: (node.type === 'service' ? 55 : node.type === 'api_endpoint' ? 15 + Math.random() * 35 : 8 + Math.random() * 45),
+                    z: basePos.z + (Math.random() - 0.5) * 35
                 };
                 
                 createNode(node, position, size);
@@ -1640,11 +1697,65 @@
         }
         
         function createNode(node, position, size, colorOverride = null) {
-            const geometry = node.type === 'service' ? new THREE.BoxGeometry(size, size, size) : new THREE.SphereGeometry(size, 16, 16);
             const color = colorOverride || NODE_COLORS[node.type] || 0xffffff;
-            const material = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2, transparent: true, opacity: 0.9 });
-            
-            const mesh = new THREE.Mesh(geometry, material);
+            let geometry, material, mesh;
+
+            if (node.type === 'service') {
+                // Icosahedron — faceted crystal look
+                geometry = new THREE.IcosahedronGeometry(size * 1.1, 1);
+                material = new THREE.MeshStandardMaterial({
+                    color, emissive: color, emissiveIntensity: 0.35,
+                    metalness: 0.4, roughness: 0.2,
+                    transparent: true, opacity: 0.92
+                });
+                mesh = new THREE.Mesh(geometry, material);
+                // Add glow ring around services
+                const ringGeo = new THREE.RingGeometry(size * 1.6, size * 1.9, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2;
+                mesh.add(ring);
+            } else if (node.type === 'file') {
+                // Octahedron — diamond-cut
+                geometry = new THREE.OctahedronGeometry(size * 0.95, 0);
+                material = new THREE.MeshStandardMaterial({
+                    color, emissive: color, emissiveIntensity: 0.2,
+                    metalness: 0.25, roughness: 0.35,
+                    transparent: true, opacity: 0.88
+                });
+                mesh = new THREE.Mesh(geometry, material);
+            } else if (node.type === 'class') {
+                // Dodecahedron with inner wireframe
+                geometry = new THREE.DodecahedronGeometry(size * 1.0, 0);
+                material = new THREE.MeshStandardMaterial({
+                    color, emissive: color, emissiveIntensity: 0.25,
+                    metalness: 0.3, roughness: 0.3,
+                    transparent: true, opacity: 0.85
+                });
+                mesh = new THREE.Mesh(geometry, material);
+                const wireGeo = new THREE.DodecahedronGeometry(size * 1.25, 0);
+                const wireMat = new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.12 });
+                mesh.add(new THREE.Mesh(wireGeo, wireMat));
+            } else if (node.type === 'api_endpoint') {
+                // Torus — ring shape, instantly recognizable
+                geometry = new THREE.TorusGeometry(size * 0.8, size * 0.3, 12, 24);
+                material = new THREE.MeshStandardMaterial({
+                    color, emissive: color, emissiveIntensity: 0.45,
+                    metalness: 0.5, roughness: 0.15,
+                    transparent: true, opacity: 0.92
+                });
+                mesh = new THREE.Mesh(geometry, material);
+            } else {
+                // Functions — small smooth sphere
+                geometry = new THREE.SphereGeometry(size * 0.85, 20, 20);
+                material = new THREE.MeshStandardMaterial({
+                    color, emissive: color, emissiveIntensity: 0.2,
+                    metalness: 0.2, roughness: 0.4,
+                    transparent: true, opacity: 0.85
+                });
+                mesh = new THREE.Mesh(geometry, material);
+            }
+
             mesh.position.set(position.x, position.y, position.z);
             mesh.userData.nodeId = node.id;
             mesh.userData.nodeType = node.type;
@@ -1660,38 +1771,40 @@
             
             const start = new THREE.Vector3(sourceNode.position.x, sourceNode.position.y, sourceNode.position.z);
             const end = new THREE.Vector3(targetNode.position.x, targetNode.position.y, targetNode.position.z);
+            const distance = start.distanceTo(end);
             
-            let points;
-            let opacity = 0.4;
+            // Always curved — arc upward proportional to distance
+            const midX = (start.x + end.x) / 2;
+            const midY = (start.y + end.y) / 2 + Math.min(distance * 0.08, 12);
+            const midZ = (start.z + end.z) / 2;
             
-            // For hierarchical layout, use curved connections and fade long ones
-            if (currentLayout === 'hierarchical' || currentLayout === 'layered') {
-                const distance = start.distanceTo(end);
-                opacity = Math.max(0.1, 0.6 - distance * 0.002); // Fade long connections
-                
-                // Create curved path for cleaner look
-                const midY = (start.y + end.y) / 2;
-                const midX = (start.x + end.x) / 2;
-                const midZ = (start.z + end.z) / 2;
-                
-                // Curve outward slightly
-                const curveOffset = Math.min(distance * 0.1, 15);
-                
-                const curve = new THREE.QuadraticBezierCurve3(
-                    start,
-                    new THREE.Vector3(midX + curveOffset, midY, midZ),
-                    end
-                );
-                points = curve.getPoints(10);
-            } else {
-                points = [start, end];
-            }
+            const curve = new THREE.QuadraticBezierCurve3(
+                start,
+                new THREE.Vector3(midX, midY, midZ),
+                end
+            );
+            const points = curve.getPoints(16);
+            
+            // Distance-based opacity: nearby connections clearer
+            let opacity = conn.status === 'broken' ? 0.35 : conn.status === 'dead' ? 0.08 : Math.max(0.06, 0.25 - distance * 0.0008);
             
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
             const color = CONNECTION_COLORS[conn.status] || CONNECTION_COLORS.active;
-            const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
             
-            const line = new THREE.Line(geometry, material);
+            let line;
+            if (conn.status === 'broken') {
+                // Dashed line for broken connections
+                const material = new THREE.LineDashedMaterial({
+                    color, transparent: true, opacity,
+                    dashSize: 2, gapSize: 1.5
+                });
+                line = new THREE.Line(geometry, material);
+                line.computeLineDistances();
+            } else {
+                const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+                line = new THREE.Line(geometry, material);
+            }
+            
             line.userData = { source: conn.source_id, target: conn.target_id, type: conn.type, status: conn.status };
             
             scene.add(line);
@@ -2407,7 +2520,7 @@
             // Create nodes with calculated positions
             nodes.forEach(node => {
                 const pos = positions[node.id] || { x: 0, y: 0, z: 0 };
-                const size = node.type === 'service' ? 8 : node.type === 'file' ? 3 : node.type === 'api_endpoint' ? 4 : 2;
+                const size = node.type === 'service' ? 10 : node.type === 'file' ? 3.5 : node.type === 'api_endpoint' ? 4.5 : 2;
                 createNode(node, pos, size);
             });
             
@@ -2786,10 +2899,39 @@ ${JSON.stringify(summary, null, 2)}
             }
         }
         
+        let animTime = 0;
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-            Object.values(nodeObjects).forEach(n => { if (n.type === 'api_endpoint') n.mesh.rotation.y += 0.01; });
+            animTime += 0.016;
+
+            // Animate nodes by type
+            Object.values(nodeObjects).forEach(n => {
+                if (n.type === 'api_endpoint') {
+                    n.mesh.rotation.y += 0.012;
+                    n.mesh.rotation.x = Math.sin(animTime * 0.8) * 0.15;
+                } else if (n.type === 'service') {
+                    // Gentle breathing pulse
+                    const s = 1.0 + Math.sin(animTime * 0.6) * 0.03;
+                    n.mesh.scale.setScalar(s);
+                } else if (n.type === 'file') {
+                    n.mesh.rotation.y += 0.003;
+                }
+            });
+
+            // Drift particles upward
+            if (particleSystem && particlePositions) {
+                for (let i = 0; i < particleSpeeds.length; i++) {
+                    particlePositions[i * 3 + 1] += particleSpeeds[i];
+                    if (particlePositions[i * 3 + 1] > 200) {
+                        particlePositions[i * 3 + 1] = -20;
+                        particlePositions[i * 3] = (Math.random() - 0.5) * 500;
+                        particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 500;
+                    }
+                }
+                particleSystem.geometry.attributes.position.needsUpdate = true;
+            }
+
             renderer.render(scene, camera);
             updateMinimap();
         }
@@ -2813,7 +2955,7 @@ ${JSON.stringify(summary, null, 2)}
             const height = canvas.height;
             
             // Clear
-            minimapCtx.fillStyle = '#32312E';
+            minimapCtx.fillStyle = '#0e0e12';
             minimapCtx.fillRect(0, 0, width, height);
             
             // Find bounds
@@ -3141,7 +3283,7 @@ ${JSON.stringify(summary, null, 2)}
             
             const proposalsList = document.getElementById('proposals-list');
             proposalsList.innerHTML = data.proposals.map((p, i) => `
-                <div class="proposal-item" style="background:#262321;padding:10px;border-radius:4px;margin-bottom:8px;border-left:3px solid ${getRiskColor(p.risk)};">
+                <div class="proposal-item" style="background:rgba(14,14,18,0.7);padding:10px;border-radius:4px;margin-bottom:8px;border-left:3px solid ${getRiskColor(p.risk)};">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
                         <strong style="color:rgba(255,255,255,0.3);">${p.proposal}</strong>
                         <span style="font-size:0.8em;color:${getRiskColor(p.risk)};">Risk: ${p.risk.toFixed(1)}</span>

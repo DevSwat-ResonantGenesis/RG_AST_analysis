@@ -27,6 +27,7 @@ from .comparison_analyzer import MultiProjectComparator
 from .governance import GovernanceEngine
 from .startup import init_database_connections, close_database_connections
 from .agents.janitor import GraphJanitorAgent
+from .agents.learning_postgres import OutcomeRecord
 from . import startup as _startup_mod
 from .db import async_session_maker, SavedAnalysis, init_db
 
@@ -732,7 +733,12 @@ async def _db_save_analysis(
                 source=source,
                 repo_url=repo_url or "",
                 stats_json=stats,
-                meta_json={k: v for k, v in (meta or {}).items() if k != "path"},
+                meta_json={
+                    **{k: v for k, v in (meta or {}).items() if k != "path"},
+                    "project_name": project_name or "",
+                    "repo_url": repo_url or "",
+                    "source": source or "unknown",
+                },
                 analysis_json=analysis,
                 storage_bytes=storage_bytes,
             )
@@ -1316,6 +1322,7 @@ async def api_merge_analyses(payload: MergeAnalysesRequest):
         label = (it.label or "project").strip() or "project"
         if not src_id:
             continue
+        await _ensure_analysis_loaded(src_id)
         data = _get_analysis_or_404(src_id)
         projects.append(label)
         for n in data.get("nodes", []):
@@ -1363,17 +1370,22 @@ async def api_compare_by_analysis(payload: Dict[str, Any] = Body(...)):
         label = (p.get("label") or aid) if isinstance(p, dict) else aid
         if not aid:
             continue
+        # Auto-load from DB if not in memory
+        await _ensure_analysis_loaded(aid)
+        if aid not in _analysis_store:
+            raise HTTPException(status_code=404, detail=f"Analysis {aid} not found")
         meta = _analysis_meta.get(aid) or {}
         path = (meta.get("path") or "").strip() if isinstance(meta, dict) else ""
-        if not path:
-            raise HTTPException(status_code=400, detail=f"Missing cached path for analysis {aid}")
+        # Use repo_url or source as fallback label when path not available
+        if not label or label == aid:
+            label = meta.get("project_name") or meta.get("repo_url") or f"project-{idx + 1}"
         data = _get_analysis_or_404(aid)
         comparator.projects.append(
             {
                 "index": idx,
                 "label": label,
                 "analysis_id": aid,
-                "path": path,
+                "path": path or f"analysis:{aid}",
                 "data": data,
                 "analyzer": None,
             }
@@ -1408,6 +1420,23 @@ async def api_get_comparison(comparison_id: str):
     if key not in _analysis_store:
         raise HTTPException(status_code=404, detail="Comparison not found")
     return _analysis_store[key]
+
+
+@app.get("/api/comparison/{comparison_id}/heat-map/{category}")
+async def api_comparison_heat_map(comparison_id: str, category: str):
+    """Return heat-map data for a comparison overlay.
+
+    Categories: changes, instability, connections, weight
+    """
+    key = f"comparison:{comparison_id}"
+    if key not in _analysis_store:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+    comp = _analysis_store[key]
+    heat_maps = comp.get("heat_maps") or {}
+    if category not in heat_maps:
+        valid = list(heat_maps.keys()) or ["changes", "instability", "connections", "weight"]
+        raise HTTPException(status_code=404, detail=f"Heat-map category '{category}' not found. Valid: {valid}")
+    return {"category": category, "comparison_id": comparison_id, "data": heat_maps[category]}
 
 
 @app.get("/api/analysis/{analysis_id}")
@@ -1445,10 +1474,22 @@ async def api_filter_analysis(analysis_id: str, payload: Dict[str, Any] = Body(.
         # Attempt to re-run filter using analyzer when possible.
         meta = _analysis_meta.get(analysis_id) or {}
         path = meta.get("path")
-        if path:
-            analyzer = CodebaseAnalyzer(path)
-            analyzer.analyze()
-            return analyzer.filter_by_pipeline(pipeline)
+        if path and Path(path).exists():
+            try:
+                analyzer = CodebaseAnalyzer(path)
+                analyzer.analyze()
+                return analyzer.filter_by_pipeline(pipeline)
+            except Exception:
+                pass
+        # Graph-only fallback: filter from stored pipeline data
+        pipelines = data.get("pipelines") or {}
+        if pipeline in pipelines:
+            p_data = pipelines[pipeline]
+            p_node_ids = set(p_data.get("nodes") or [])
+            p_nodes = [n for n in (data.get("nodes") or []) if n.get("id") in p_node_ids]
+            p_conns = [c for c in (data.get("connections") or [])
+                       if c.get("source_id") in p_node_ids or c.get("target_id") in p_node_ids]
+            return {"nodes": p_nodes, "connections": p_conns, "pipeline": pipeline}
     return data
 
 
@@ -1470,10 +1511,13 @@ async def api_trace(analysis_id: str, payload: Dict[str, Any] = Body(...)):
     max_depth = int(payload.get("max_depth", 10))
     meta = _analysis_meta.get(analysis_id) or {}
     path = meta.get("path")
-    if path:
-        analyzer = CodebaseAnalyzer(path)
-        analyzer.analyze()
-        return analyzer.trace_execution(start_node, max_depth=max_depth)
+    if path and Path(path).exists():
+        try:
+            analyzer = CodebaseAnalyzer(path)
+            analyzer.analyze()
+            return analyzer.trace_execution(start_node, max_depth=max_depth)
+        except Exception:
+            pass
     analysis = _get_analysis_or_404(analysis_id)
     return _trace_stored_analysis(analysis, start_node, max_depth=max_depth)
 
@@ -1485,10 +1529,13 @@ async def api_full_pipeline(analysis_id: str, payload: Dict[str, Any] = Body(...
     max_depth = int(payload.get("max_depth", 50))
     meta = _analysis_meta.get(analysis_id) or {}
     path = meta.get("path")
-    if path:
-        analyzer = CodebaseAnalyzer(path)
-        analyzer.analyze()
-        return analyzer.trace_execution(start_node, max_depth=max_depth)
+    if path and Path(path).exists():
+        try:
+            analyzer = CodebaseAnalyzer(path)
+            analyzer.analyze()
+            return analyzer.trace_execution(start_node, max_depth=max_depth)
+        except Exception:
+            pass
     analysis = _get_analysis_or_404(analysis_id)
     return _trace_stored_analysis(analysis, start_node, max_depth=max_depth)
 
@@ -1551,7 +1598,7 @@ async def api_governance(request: Request, analysis_id: str, payload: Dict[str, 
     resp: Dict[str, Any] = dict(report_dict)
     # Legacy UI compatibility.
     resp["governance"] = report_dict
-    resp["node_status"] = dict(engine.node_status)
+    resp["node_status"] = {k: (v.value if hasattr(v, 'value') else str(v)) for k, v in engine.node_status.items()}
     resp["live_count"] = getattr(report, "live_nodes", None)
     resp["invalid_count"] = getattr(report, "invalid_nodes", None)
     resp["credits_deducted"] = credits_deducted
@@ -1565,8 +1612,13 @@ async def api_governance_live_nodes(analysis_id: str):
     rep = _analysis_store.get(f"governance:{analysis_id}")
     if not rep:
         return {"live_nodes": []}
-    # Governance engine currently doesn't return the node lists; keep endpoint for UI.
-    return {"live_nodes": []}
+    node_status = rep.get("node_status") or {}
+    live_ids = [nid for nid, status in node_status.items() if str(status).lower().replace("nodestatus.", "") == "live"]
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _analysis_store.get(analysis_id) or {}
+    all_nodes = {n["id"]: n for n in (analysis.get("nodes") or []) if isinstance(n, dict)}
+    live_nodes = [all_nodes[nid] for nid in live_ids if nid in all_nodes]
+    return {"live_nodes": live_nodes, "count": len(live_nodes)}
 
 
 @app.get("/api/analysis/{analysis_id}/governance/invalid-nodes")
@@ -1574,7 +1626,13 @@ async def api_governance_invalid_nodes(analysis_id: str):
     rep = _analysis_store.get(f"governance:{analysis_id}")
     if not rep:
         return {"invalid_nodes": []}
-    return {"invalid_nodes": []}
+    node_status = rep.get("node_status") or {}
+    invalid_ids = [nid for nid, status in node_status.items() if str(status).lower().replace("nodestatus.", "") == "invalid"]
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _analysis_store.get(analysis_id) or {}
+    all_nodes = {n["id"]: n for n in (analysis.get("nodes") or []) if isinstance(n, dict)}
+    invalid_nodes = [all_nodes[nid] for nid in invalid_ids if nid in all_nodes]
+    return {"invalid_nodes": invalid_nodes, "count": len(invalid_nodes)}
 
 
 @app.post("/api/analysis/{analysis_id}/agent/scan")
@@ -1607,6 +1665,7 @@ async def api_agent_scan(analysis_id: str, payload: Dict[str, Any] = Body(...)):
 
     # Use async_scan with memory if DB is available; else stateless scan
     memory = _startup_mod.agent_memory
+    learning = _startup_mod.learning_engine
     try:
         if memory and memory.pool:
             report = await agent.async_scan(memory)
@@ -1620,7 +1679,530 @@ async def api_agent_scan(analysis_id: str, payload: Dict[str, Any] = Body(...)):
 
     result = report.to_dict()
     result["agent"] = agent_label
+
+    # Re-rank proposals using learned utility if learning engine is available
+    if learning and learning.pool and result.get("proposals"):
+        try:
+            ranked = []
+            for p in result["proposals"]:
+                learned_u = await learning.compute_utility({
+                    "action_type": p.get("proposal") or p.get("proposal_type", ""),
+                    "node_type": p.get("node_type", "unknown"),
+                    "blast_radius": (p.get("action") or {}).get("blast_radius", 0) if isinstance(p.get("action"), dict) else 0,
+                    "target_node": p.get("root") or p.get("root_node", ""),
+                })
+                p["learned_utility"] = round(learned_u, 4)
+                ranked.append(p)
+            ranked.sort(key=lambda x: x.get("learned_utility", 0), reverse=True)
+            result["proposals"] = ranked
+            result["learning_applied"] = True
+        except Exception as le:
+            logger.warning("Learning re-rank failed: %s", le)
+            result["learning_applied"] = False
+    else:
+        result["learning_applied"] = False
+
     return result
+
+
+@app.post("/api/analysis/{analysis_id}/agent/outcome")
+async def api_agent_outcome(analysis_id: str, payload: Dict[str, Any] = Body(...)):
+    """Record the outcome of a proposal (approve/reject/rollback).
+
+    This is the feedback loop that allows Junior to learn.
+    Required fields: proposal_id, status (approved|rejected|rolled_back)
+    Optional: reachability_delta, blast_radius, approval_latency_seconds
+    """
+    learning = _startup_mod.learning_engine
+    memory = _startup_mod.agent_memory
+
+    proposal_id = (payload.get("proposal_id") or "").strip()
+    status = (payload.get("status") or "").strip().lower()
+    if not proposal_id or status not in ("approved", "rejected", "rolled_back", "executed"):
+        raise HTTPException(status_code=400, detail="proposal_id and status (approved|rejected|rolled_back|executed) required")
+
+    # Update proposal status in memory
+    if memory and memory.pool:
+        try:
+            await memory.update_proposal_status(
+                proposal_id, status,
+                reason=payload.get("reason"),
+                result=payload.get("result"),
+            )
+        except Exception as e:
+            logger.warning("Failed to update proposal status: %s", e)
+
+    # Record outcome in learning engine
+    outcome_recorded = False
+    if learning and learning.pool:
+        try:
+            applied = status in ("approved", "executed")
+            rolled_back = status == "rolled_back"
+            human_rejected = status == "rejected"
+
+            outcome = OutcomeRecord(
+                patch_id=f"patch:{proposal_id}",
+                action_id=proposal_id,
+                action_type=payload.get("action_type", payload.get("proposal_type", "unknown")),
+                target_node=payload.get("target_node", payload.get("root_node", "")),
+                node_type=payload.get("node_type", "unknown"),
+                blast_radius=int(payload.get("blast_radius", 0)),
+                applied=applied,
+                rolled_back=rolled_back,
+                human_rejected=human_rejected,
+                reachability_delta=float(payload.get("reachability_delta", 0.0)),
+                isolated_nodes_delta=int(payload.get("isolated_nodes_delta", 0)),
+                approval_latency_seconds=int(payload.get("approval_latency_seconds", 0)),
+                post_epoch_stability=payload.get("post_epoch_stability", True),
+                proposed_at=payload.get("proposed_at", ""),
+                resolved_at=payload.get("resolved_at", ""),
+            )
+            await learning.record_outcome(outcome)
+            outcome_recorded = True
+        except Exception as e:
+            logger.warning("Failed to record learning outcome: %s", e)
+
+    return {
+        "proposal_id": proposal_id,
+        "status": status,
+        "outcome_recorded": outcome_recorded,
+        "memory_updated": memory is not None and memory.pool is not None,
+    }
+
+
+@app.get("/api/analysis/{analysis_id}/agent/status")
+async def api_agent_status(analysis_id: str):
+    """Get the current status of the Graph Janitor Agent for an analysis."""
+    memory = _startup_mod.agent_memory
+    learning = _startup_mod.learning_engine
+
+    memory_stats = {}
+    if memory and memory.pool:
+        try:
+            memory_stats = await memory.get_stats()
+        except Exception as e:
+            memory_stats = {"error": str(e)}
+
+    learning_stats = {}
+    if learning and learning.pool:
+        try:
+            learning_stats = await learning.get_stats()
+        except Exception as e:
+            learning_stats = {"error": str(e)}
+
+    return {
+        "agent": "Graph Janitor Agent (GJA)",
+        "version": "2.0",
+        "mission": "Increase execution reachability while decreasing system entropy",
+        "analysis_id": analysis_id,
+        "capabilities": {
+            "memory_enabled": memory is not None and getattr(memory, "pool", None) is not None,
+            "learning_enabled": learning is not None and getattr(learning, "pool", None) is not None,
+            "sandbox_mode": True,
+            "execution_enabled": False,
+        },
+        "allowed_actions": ["INSPECTION", "CLASSIFICATION", "PROPOSE"],
+        "restricted_actions": ["DIRECT_DELETE", "MULTI_ROOT_MUTATION", "CROSS_SERVICE_REWRITE"],
+        "memory": memory_stats,
+        "learning": learning_stats,
+    }
+
+
+@app.get("/api/analysis/{analysis_id}/agent/proposals")
+async def api_agent_proposals(analysis_id: str, status: Optional[str] = None, limit: int = 100):
+    """List proposals stored by the Graph Janitor Agent."""
+    memory = _startup_mod.agent_memory
+    if not memory or not memory.pool:
+        return {"proposals": [], "error": "Agent memory not available"}
+
+    try:
+        if status:
+            proposals = await memory.get_proposals_by_status(status, limit=min(limit, 500))
+        else:
+            proposals = await memory.get_all_proposals(limit=min(limit, 500))
+
+        # Filter to this analysis only
+        filtered = [
+            p for p in proposals
+            if (p.get("proposal_data") or {}).get("analysis_id") == analysis_id
+        ]
+        return {"proposals": filtered, "count": len(filtered)}
+    except Exception as e:
+        logger.warning("Failed to list proposals: %s", e)
+        return {"proposals": [], "error": str(e)}
+
+
+@app.get("/api/agent/learning/stats")
+async def api_agent_learning_stats():
+    """Get global learning statistics across all analyses."""
+    learning = _startup_mod.learning_engine
+    memory = _startup_mod.agent_memory
+
+    result: Dict[str, Any] = {
+        "learning_enabled": learning is not None and getattr(learning, "pool", None) is not None,
+        "memory_enabled": memory is not None and getattr(memory, "pool", None) is not None,
+    }
+
+    if learning and learning.pool:
+        try:
+            result["outcome_stats"] = await learning.get_stats()
+            result["model_parameters"] = {
+                "action_prior": {
+                    "entries": len(learning.action_prior.parameters),
+                    "sample": dict(list(learning.action_prior.parameters.items())[:5]),
+                },
+                "node_stability": {
+                    "entries": len(learning.node_stability.parameters),
+                    "sample": dict(list(learning.node_stability.parameters.items())[:5]),
+                },
+                "impact": {
+                    "entries": len(learning.impact_model.parameters),
+                    "sample": dict(list(learning.impact_model.parameters.items())[:5]),
+                },
+                "cost": {
+                    "latency": learning.cost_model.latency_params,
+                    "rollback": learning.cost_model.rollback_params,
+                },
+            }
+        except Exception as e:
+            result["error"] = str(e)
+
+    if memory and memory.pool:
+        try:
+            result["memory_stats"] = await memory.get_stats()
+        except Exception as e:
+            result["memory_error"] = str(e)
+
+    return result
+
+
+@app.post("/api/analysis/{analysis_id}/agent/compile")
+async def api_agent_compile(analysis_id: str, payload: Dict[str, Any] = Body(...)):
+    """Compile a GAL action into a code patch via the Graph Patch Compiler.
+
+    Required: action_id (from a pending proposal in the GAL engine)
+    Or provide action_type + target_node for ad-hoc compilation.
+    """
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _get_analysis_or_404(analysis_id)
+
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+
+    from .agents.gal import GALEngine
+    gal = GALEngine(graph_data)
+
+    action_id = (payload.get("action_id") or "").strip()
+    if action_id:
+        patch = gal.compile_to_patch(action_id)
+        return {"patch": patch, "source": "pending_proposal"}
+
+    # Ad-hoc: create a proposal from action_type + target_node, then compile
+    action_type = (payload.get("action_type") or "").strip()
+    target_node = (payload.get("target_node") or "").strip()
+    if not action_type or not target_node:
+        raise HTTPException(status_code=400, detail="Provide action_id, or action_type + target_node")
+
+    try:
+        if action_type == "TAG_DEAD":
+            contract = gal.tag_subgraph(target_node, "dead")
+        elif action_type == "TAG_DORMANT":
+            contract = gal.tag_subgraph(target_node, "dormant")
+        elif action_type == "TAG_DEPRECATED":
+            contract = gal.tag_subgraph(target_node, "deprecated")
+        elif action_type == "ISOLATE_SUBGRAPH":
+            contract = gal.propose_isolate_subgraph(target_node)
+        elif action_type == "PROPOSE_DELETE":
+            contract = gal.propose_delete_subgraph(target_node)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown action_type: {action_type}")
+
+        patch = gal.compile_to_patch(contract.action_id)
+        return {
+            "contract": contract.to_dict(),
+            "patch": patch,
+            "source": "ad_hoc",
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Compilation failed: {str(exc)[:300]}")
+
+
+@app.post("/api/analysis/{analysis_id}/agent/approve")
+async def api_agent_approve(analysis_id: str, payload: Dict[str, Any] = Body(...)):
+    """Approve a Graph Janitor Agent proposal by action_id.
+
+    The frontend sends { action_id: "..." } when the user clicks ✓ Approve.
+    This updates both the in-memory GAL engine and the persistent DB proposal.
+    """
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _get_analysis_or_404(analysis_id)
+
+    action_id = (payload.get("action_id") or "").strip()
+    if not action_id:
+        raise HTTPException(status_code=400, detail="action_id required")
+
+    # Apply in GAL engine (in-memory)
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+    from .agents.gal import GALEngine
+    gal = GALEngine(graph_data)
+
+    # Try to approve in GAL engine (may not have this proposal in memory
+    # if it was from a previous scan — that's fine, we still update DB)
+    gal_result = gal.approve_action(action_id)
+
+    # Update proposal in DB (persistent)
+    memory = _startup_mod.agent_memory
+    if memory and memory.pool:
+        try:
+            await memory.update_proposal_status(
+                action_id, "approved",
+                reason=payload.get("reason"),
+                result=None,
+            )
+        except Exception as e:
+            logger.warning("Failed to update proposal status in DB: %s", e)
+
+    # Record as outcome in learning engine
+    learning = _startup_mod.learning_engine
+    if learning and learning.pool:
+        try:
+            outcome = OutcomeRecord(
+                patch_id=f"patch:{action_id}",
+                action_id=action_id,
+                action_type=payload.get("action_type", "unknown"),
+                target_node=payload.get("target_node", ""),
+                node_type=payload.get("node_type", "unknown"),
+                blast_radius=int(payload.get("blast_radius", 0)),
+                applied=True,
+                rolled_back=False,
+                human_rejected=False,
+                reachability_delta=0.0,
+                isolated_nodes_delta=0,
+                approval_latency_seconds=int(payload.get("approval_latency_seconds", 0)),
+                post_epoch_stability=True,
+                proposed_at=payload.get("proposed_at", ""),
+                resolved_at=payload.get("resolved_at", ""),
+            )
+            await learning.record_outcome(outcome)
+        except Exception as e:
+            logger.warning("Failed to record approve outcome: %s", e)
+
+    return {"status": "approved", "action_id": action_id, "gal_result": gal_result}
+
+
+@app.post("/api/analysis/{analysis_id}/agent/reject")
+async def api_agent_reject(analysis_id: str, payload: Dict[str, Any] = Body(...)):
+    """Reject a Graph Janitor Agent proposal by action_id.
+
+    The frontend sends { action_id: "..." } when the user clicks ✗ Reject.
+    """
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _get_analysis_or_404(analysis_id)
+
+    action_id = (payload.get("action_id") or "").strip()
+    if not action_id:
+        raise HTTPException(status_code=400, detail="action_id required")
+
+    # Reject in GAL engine
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+    from .agents.gal import GALEngine
+    gal = GALEngine(graph_data)
+    gal_result = gal.reject_action(action_id)
+
+    # Update proposal in DB
+    memory = _startup_mod.agent_memory
+    if memory and memory.pool:
+        try:
+            await memory.update_proposal_status(
+                action_id, "rejected",
+                reason=payload.get("reason"),
+                result=None,
+            )
+        except Exception as e:
+            logger.warning("Failed to update proposal status in DB: %s", e)
+
+    # Record as outcome in learning engine
+    learning = _startup_mod.learning_engine
+    if learning and learning.pool:
+        try:
+            outcome = OutcomeRecord(
+                patch_id=f"patch:{action_id}",
+                action_id=action_id,
+                action_type=payload.get("action_type", "unknown"),
+                target_node=payload.get("target_node", ""),
+                node_type=payload.get("node_type", "unknown"),
+                blast_radius=int(payload.get("blast_radius", 0)),
+                applied=False,
+                rolled_back=False,
+                human_rejected=True,
+                reachability_delta=0.0,
+                isolated_nodes_delta=0,
+                approval_latency_seconds=0,
+                post_epoch_stability=True,
+                proposed_at=payload.get("proposed_at", ""),
+                resolved_at=payload.get("resolved_at", ""),
+            )
+            await learning.record_outcome(outcome)
+        except Exception as e:
+            logger.warning("Failed to record reject outcome: %s", e)
+
+    return {"status": "rejected", "action_id": action_id, "gal_result": gal_result}
+
+
+@app.get("/api/analysis/{analysis_id}/agent/preview/{action_id}")
+async def api_agent_preview(analysis_id: str, action_id: str):
+    """Preview a compiled patch for a proposal action_id.
+
+    Returns the compiled patch (type, target, files_affected, diffs) so the
+    frontend can show a preview before the user approves.
+    """
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _get_analysis_or_404(analysis_id)
+
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+
+    from .agents.gal import GALEngine
+    gal = GALEngine(graph_data)
+
+    # Try to compile the action into a patch
+    try:
+        patch = gal.compile_to_patch(action_id)
+    except (ValueError, KeyError):
+        patch = None
+
+    if not patch:
+        # If action not in current GAL session, try to get proposal from DB
+        memory = _startup_mod.agent_memory
+        proposal_data = None
+        if memory and memory.pool:
+            try:
+                proposal_data = await memory.get_proposal(action_id)
+            except Exception:
+                pass
+
+        if proposal_data:
+            # Build a synthetic preview from the stored proposal
+            p = proposal_data.get("proposal_data") or proposal_data
+            return {
+                "type": p.get("proposal") or p.get("proposal_type") or "unknown",
+                "target": p.get("root") or p.get("root_node") or "",
+                "files_affected": [p.get("file_path", "")] if p.get("file_path") else [],
+                "diffs": [{"operation": p.get("proposal", "unknown"), "description": p.get("reason", "No details")}],
+                "source": "stored_proposal",
+            }
+        raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
+
+    return patch
+
+
+@app.post("/api/analysis/{analysis_id}/agent/execute")
+async def api_agent_execute(analysis_id: str, payload: Dict[str, Any] = Body(default={})):
+    """Execute all approved Graph Janitor Agent actions.
+
+    This compiles approved proposals into patches via the GAL→GPC pipeline
+    and returns the execution results. Patches are NOT auto-applied to disk
+    (sandbox mode) — the frontend shows results for manual application.
+    """
+    await _ensure_analysis_loaded(analysis_id)
+    analysis = _get_analysis_or_404(analysis_id)
+
+    graph_data = {
+        "nodes": analysis.get("nodes") or [],
+        "connections": analysis.get("connections") or [],
+    }
+
+    from .agents.gal import GALEngine
+    gal = GALEngine(graph_data)
+
+    # Get approved proposals from DB
+    memory = _startup_mod.agent_memory
+    approved_proposals = []
+    if memory and memory.pool:
+        try:
+            approved_proposals = await memory.get_proposals_by_status("approved", limit=50)
+        except Exception as e:
+            logger.warning("Failed to get approved proposals: %s", e)
+
+    executed = 0
+    failed = 0
+    details = []
+
+    for proposal in approved_proposals:
+        p_data = proposal.get("proposal_data") or proposal
+        action_id_p = proposal.get("proposal_id", "")
+        action_type = p_data.get("proposal") or p_data.get("proposal_type", "unknown")
+        target_node = p_data.get("root") or p_data.get("root_node", "")
+
+        try:
+            # Compile via GAL
+            patch = None
+            try:
+                patch = gal.compile_to_patch(action_id_p)
+            except (ValueError, KeyError):
+                # Not in current GAL session — try ad-hoc compile
+                try:
+                    if "DEAD" in action_type.upper():
+                        contract = gal.tag_subgraph(target_node, "dead")
+                    elif "DORMANT" in action_type.upper():
+                        contract = gal.tag_subgraph(target_node, "dormant")
+                    elif "ISOLATE" in action_type.upper():
+                        contract = gal.propose_isolate_subgraph(target_node)
+                    elif "DELETE" in action_type.upper():
+                        contract = gal.propose_delete_subgraph(target_node)
+                    else:
+                        contract = gal.tag_subgraph(target_node, "dead")
+                    patch = gal.compile_to_patch(contract.action_id)
+                except Exception:
+                    pass
+
+            details.append({
+                "action_id": action_id_p,
+                "type": action_type,
+                "target": target_node,
+                "patch": patch,
+                "status": "compiled" if patch else "skipped",
+            })
+
+            # Mark as executed in DB
+            if memory and memory.pool:
+                try:
+                    await memory.update_proposal_status(action_id_p, "executed")
+                except Exception:
+                    pass
+
+            executed += 1
+
+        except Exception as exc:
+            failed += 1
+            details.append({
+                "action_id": action_id_p,
+                "type": action_type,
+                "target": target_node,
+                "status": "failed",
+                "error": str(exc)[:200],
+            })
+
+    return {
+        "analysis_id": analysis_id,
+        "executed": executed,
+        "failed": failed,
+        "total": len(approved_proposals),
+        "details": details,
+        "sandbox_mode": True,
+    }
 
 
 @app.post("/api/upload")
