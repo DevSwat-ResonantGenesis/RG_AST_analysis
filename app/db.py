@@ -18,12 +18,26 @@ DATABASE_URL = os.getenv(
     f"{os.getenv('DB_NAME', 'defaultdb')}?ssl=require"
 )
 
+# Memory database URL for agent memory/learning tables
+MEMORY_DATABASE_URL = os.getenv(
+    "MEMORY_DATABASE_URL",
+    DATABASE_URL  # Fallback to main database if not set
+)
+
 # Convert to async URL for asyncpg
 ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+ASYNC_MEMORY_DATABASE_URL = MEMORY_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://").replace("postgresql+asyncpg://", "postgresql://")
 
 # Create async engine
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
+    poolclass=NullPool,
+    echo=False,
+)
+
+# Create async engine for memory database
+memory_engine = create_async_engine(
+    ASYNC_MEMORY_DATABASE_URL,
     poolclass=NullPool,
     echo=False,
 )

@@ -4,6 +4,7 @@ Handles async database initialization for PostgreSQL
 """
 
 import logging
+import os
 from .agents.memory_postgres import PostgresAgentMemory
 from .agents.learning_postgres import PostgresLearningEngine
 
@@ -21,13 +22,16 @@ async def init_database_connections():
     try:
         logger.info("Initializing PostgreSQL connections for AST Analysis...")
         
-        # Initialize agent memory
-        agent_memory = PostgresAgentMemory(agent_id='janitor_agent')
+        # Get MEMORY_DATABASE_URL for agent memory/learning
+        memory_db_url = os.getenv("MEMORY_DATABASE_URL")
+        
+        # Initialize agent memory with MEMORY_DATABASE_URL
+        agent_memory = PostgresAgentMemory(agent_id='janitor_agent', db_url=memory_db_url)
         await agent_memory.init()
         logger.info("✅ Agent memory initialized")
         
-        # Initialize learning engine
-        learning_engine = PostgresLearningEngine()
+        # Initialize learning engine with MEMORY_DATABASE_URL
+        learning_engine = PostgresLearningEngine(db_url=memory_db_url)
         await learning_engine.init()
         logger.info("✅ Learning engine initialized")
         
