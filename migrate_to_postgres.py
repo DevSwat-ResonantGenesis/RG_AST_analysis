@@ -22,6 +22,9 @@ POSTGRES_URL = os.getenv(
     f"{os.getenv('DB_NAME', 'defaultdb')}?ssl=require"
 )
 
+# Remove SQLAlchemy-specific prefix for asyncpg
+POSTGRES_URL = POSTGRES_URL.replace("postgresql+asyncpg://", "postgresql://")
+
 SQLITE_LEARNING_DB = "/app/data/learning.db"
 SQLITE_MEMORY_DB = "/app/data/agent_memory.db"
 
