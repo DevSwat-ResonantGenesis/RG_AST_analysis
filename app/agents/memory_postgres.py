@@ -19,15 +19,20 @@ class PostgresAgentMemory:
     def __init__(self, agent_id: str, db_url: Optional[str] = None):
         self.agent_id = agent_id
         # asyncpg uses postgresql:// (not postgresql+asyncpg://)
-        # Also needs sslmode= not ssl=
-        # Use dedicated code_visualizer_db
+        # Use MEMORY_DATABASE_URL first, fallback to DATABASE_URL, then CODE_VISUALIZER_DATABASE_URL
         db_url_raw = db_url or os.getenv(
-            "CODE_VISUALIZER_DATABASE_URL",
-            f"postgresql://{os.getenv('DB_USER', 'doadmin')}:"
-            f"{os.getenv('DB_PASSWORD', '')}@"
-            f"{os.getenv('DB_HOST', 'resonant-db-do-user-18031534-0.g.db.ondigitalocean.com')}:"
-            f"{os.getenv('DB_PORT', '25060')}/"
-            f"code_visualizer_db?sslmode=require"
+            "MEMORY_DATABASE_URL",
+            os.getenv(
+                "DATABASE_URL",
+                os.getenv(
+                    "CODE_VISUALIZER_DATABASE_URL",
+                    f"postgresql://{os.getenv('DB_USER', 'doadmin')}:"
+                    f"{os.getenv('DB_PASSWORD', '')}@"
+                    f"{os.getenv('DB_HOST', 'resonant-db-do-user-18031534-0.g.db.ondigitalocean.com')}:"
+                    f"{os.getenv('DB_PORT', '25060')}/"
+                    f"code_visualizer_db?sslmode=require"
+                )
+            )
         )
         # Remove SQLAlchemy-specific prefix and fix SSL parameter
         self.db_url = db_url_raw.replace("postgresql+asyncpg://", "postgresql://").replace("?ssl=", "?sslmode=")
